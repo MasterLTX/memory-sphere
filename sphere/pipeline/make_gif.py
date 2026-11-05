@@ -104,7 +104,8 @@ def build():
 
 
 def render_frame(Vd, F, Hv, tv, angle, size=440, alpha=0.28, ss=3):
-    M = rmat_x(math.radians(-18)) @ rmat_z(angle) @ rmat_y(math.radians(24))
+    # spin about the vertical axis (planet-like), tilted 18 deg from upright
+    M = rmat_x(math.radians(72)) @ rmat_y(angle)
     R = 1 + alpha * (Hv - 0.5)
     P = Vd * R[:, None]
     Pr = P @ M.T
@@ -163,8 +164,8 @@ def render_frame(Vd, F, Hv, tv, angle, size=440, alpha=0.28, ss=3):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--frames", default=32, type=int)
-    ap.add_argument("--size", default=460, type=int)
+    ap.add_argument("--frames", default=36, type=int)
+    ap.add_argument("--size", default=440, type=int)
     ap.add_argument("--out", default="examples/rotating.gif", type=Path)
     a = ap.parse_args(argv)
 
@@ -183,7 +184,7 @@ def main(argv=None):
         imgs.append(Image.fromarray(rgb.astype(np.uint8)))
         print(f"  frame {i+1}/{a.frames}", end="\r")
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    imgs[0].save(a.out, save_all=True, append_images=imgs[1:], duration=65, loop=0,
+    imgs[0].save(a.out, save_all=True, append_images=imgs[1:], duration=100, loop=0,
                  optimize=True, disposal=2)
     print(f"\nsaved {a.out}  {a.out.stat().st_size/1024:.0f} KB  ({a.frames} frames)")
     return 0

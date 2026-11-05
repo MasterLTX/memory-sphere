@@ -8,7 +8,7 @@
 
 ![rotating globe](examples/rotating.gif)
 
-*(28-frame rotation rendered offline — no screen recorder, no private data)*
+*(36 frames, 3.6 s per turn, rendered offline from the same pipeline — no screen recorder, no private data)*
 
 ## What it actually does
 
