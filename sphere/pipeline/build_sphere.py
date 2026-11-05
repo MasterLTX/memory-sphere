@@ -131,7 +131,7 @@ mm_pos = []
 try:
     comp = np.load(OUT / "pca_components.npy")
     raw, names = [], []
-    with open(TMP / "mm.tsv", "r", encoding="utf-8") as f:
+    with open(TMP / "models.tsv", "r", encoding="utf-8") as f:
         for line in f:
             a = line.rstrip("\n").split("\t")
             if len(a) < 2:
