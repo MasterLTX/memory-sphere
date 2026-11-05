@@ -37,6 +37,8 @@ from PIL import Image
 
 # A planet spin must beat the plate model by at least this factor, and the
 # residual vertical drift must stay under this fraction of the horizontal one.
+ROOT = Path(__file__).resolve().parents[1]
+
 MIN_TRANSLATION_ADVANTAGE = 0.85
 MAX_VERTICAL_FRACTION = 0.25
 
@@ -53,7 +55,7 @@ def load_frames(path: Path, limit: int = 12) -> list[np.ndarray]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("gif", nargs="?", default="examples/rotating.gif", type=Path)
+    ap.add_argument("gif", nargs="?", default=ROOT / "examples" / "rotating.gif", type=Path)
     ap.add_argument("--limit", default=12, type=int,
                     help="how many consecutive frames to test (default 12)")
     a = ap.parse_args(argv)

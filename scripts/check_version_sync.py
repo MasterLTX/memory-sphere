@@ -26,6 +26,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 VERSION_RE = re.compile(r'^__version__\s*=\s*["\']([^"\']+)["\']', re.M)
 # `## [1.0.1] — date`  /  `## [1.0.1] - date`; `[Unreleased]` is not a version
 CHANGELOG_RE = re.compile(r"^##\s+\[(\d+\.\d+\.\d+)\]", re.M)
@@ -56,7 +58,7 @@ def tags_at_head() -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", default=".", type=Path)
+    ap.add_argument("--root", default=ROOT, type=Path)
     ap.add_argument("--no-tag", action="store_true",
                     help="skip the git tag check (use while developing)")
     a = ap.parse_args(argv)

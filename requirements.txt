@@ -1,2 +1,4 @@
 numpy>=1.24
 Pillow>=10.0
+
+# Python 3.9 or newer (developed and tested on 3.13)

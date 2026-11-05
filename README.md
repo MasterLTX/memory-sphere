@@ -39,6 +39,9 @@ sphere centroid offset 0.058, and 1,020 of 1,024 bins get populated. Uniformly s
 information carries no structure, so UMAP/k-means would only add distortion. See
 [`sphere/pipeline/build_sphere.py`](sphere/pipeline/build_sphere.py) for the exact arithmetic.
 
+Those real-data numbers come from the author's own 10,441-memory store, which is not part of
+this repository. What you can reproduce here is the next section's set, computed on the demo data.
+
 ## What this globe can and cannot answer
 
 This section is discipline, not a disclaimer — it decides when you should open it.
@@ -113,7 +116,7 @@ dumps those files (read-only, no writes).
 ```
 sphere/pipeline/   the original flat scripts (being folded into a package)
 adapters/          exporters that produce the four input files
-docs/              formulas, architecture, pitfalls
+docs/              publishing walkthrough, Pages deck
 examples/          committed demo output
 scripts/           release gates: hero spin direction, bilingual drift, version sync
 ```

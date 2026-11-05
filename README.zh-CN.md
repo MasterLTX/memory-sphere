@@ -39,6 +39,9 @@
 再用 UMAP/k-means 只会引入畸变。具体算式见
 [`sphere/pipeline/build_sphere.py`](sphere/pipeline/build_sphere.py)。
 
+这些数字来自作者自己的 10,441 条记忆库，该数据集不在本仓库里。你在这里能复现的，
+是下一节那一组——它们是在 demo 数据上算的。
+
 ## 这颗球能回答什么，不能回答什么
 
 这一节是纪律，不是免责声明——它决定你该在什么时候打开它。
@@ -108,7 +111,7 @@ demo 为了跑得快用的是 3,000 条、64 维；上面的方差与近邻数�
 ```
 sphere/pipeline/   the original flat scripts (being folded into a package)
 adapters/          exporters that produce the four input files
-docs/              formulas, architecture, pitfalls
+docs/              publishing walkthrough, Pages deck
 examples/          committed demo output
 scripts/           release gates: hero spin direction, bilingual drift, version sync
 ```

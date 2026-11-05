@@ -25,6 +25,14 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - `README.md` linked `docs/formulas.md`, which never existed in the repository.
   The reference now points at `sphere/pipeline/build_sphere.py`, where the
   arithmetic actually lives.
+- `docs/index.html` — the GitHub Pages deck — hard-coded `10,441`, `1020` and
+  `0.709` as static placeholders while the data embedded in the page is the
+  3,000-memory demo. Before its JavaScript ran, the page asserted real-data
+  numbers it was not showing; scrapers, link previews and anyone with JS off saw
+  them too. The placeholders are now `—` and the page carries a static line
+  saying it renders synthetic data.
+- Both READMEs described `docs/` as holding `formulas, architecture, pitfalls`.
+  None of those files exist in `docs/`.
 
 ### Added
 
@@ -52,6 +60,9 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   surface.
 - README now separates the two kinds of acceptance testing: visual properties
   get a pixel test, functional properties get a task test.
+- `requirements.txt` states the Python floor (3.9). All three gates resolve the
+  repository root from their own location, so they run from any working
+  directory instead of silently failing somewhere else.
 
 ### Measured
 

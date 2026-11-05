@@ -31,6 +31,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 # English file -> Chinese file. Add a line here when a document gets translated.
 DEFAULT_PAIRS = [
     ("README.md", "README.zh-CN.md"),
@@ -175,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pair", nargs=2, metavar=("EN", "ZH"),
                     help="check a single pair instead of the defaults")
-    ap.add_argument("--root", default=".", type=Path)
+    ap.add_argument("--root", default=ROOT, type=Path)
     a = ap.parse_args(argv)
 
     pairs = [tuple(a.pair)] if a.pair else DEFAULT_PAIRS

@@ -136,7 +136,10 @@ python -m venv /tmp/clean && /tmp/clean/bin/pip install -r requirements.txt
 ## 附：本仓库当前状态速查
 
 ```bash
-git log --oneline          # 3 个 commit
-git ls-files | wc -l       # 22+ 个文件
-git remote -v              # 还没有 remote，等你建好仓库接上
+git log --oneline          # commit history
+git ls-files | wc -l       # how many files are tracked
+git remote -v              # the remote (this repo already has one configured)
 ```
+
+This repository has already shipped v1.0.0 and v1.0.1, so `origin` exists; the commands above
+are for checking your own fork or a re-initialised copy.
