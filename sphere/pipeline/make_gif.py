@@ -108,9 +108,10 @@ def render_frame(Vd, F, Hv, tv, angle, size=440, alpha=0.28, ss=3):
     # to screen-up, so the tilt applied to it is SMALL. Rx(t) sends the spin
     # axis y_hat to (0, cos t, sin t); at t=72 deg that is 95% along +z, i.e.
     # straight down the view axis -> the globe just rotates in the image plane
-    # like a plate. t=18 deg keeps 95% of the axis vertical (verified by the
-    # rotation-vs-translation residual test in out/_diag_rotation.py).
-    M = rmat_x(math.radians(18)) @ rmat_y(angle)
+    # like a plate. t=-18 deg keeps 95% of the axis vertical AND matches the
+    # static viewpoint used by render_sphere.py / render_frames.py, so the poles
+    # sit on the same side in every render. Verified by out/_diag_rotation.py.
+    M = rmat_x(math.radians(-18)) @ rmat_y(angle)
     R = 1 + alpha * (Hv - 0.5)
     P = Vd * R[:, None]
     Pr = P @ M.T

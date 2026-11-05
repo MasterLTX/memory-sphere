@@ -72,6 +72,7 @@ sphere/pipeline/   the original flat scripts (being folded into a package)
 adapters/          exporters that produce the four input files
 docs/              formulas, architecture, pitfalls
 examples/          committed demo output
+scripts/           regression checks (hero spin direction, pixel-based)
 ```
 
 ## Pitfalls already paid for
@@ -87,6 +88,12 @@ examples/          committed demo output
 5. **CSS class collisions** — `querySelectorAll('.btn')` silently bound a second handler to a
    toggle button, writing `undefined` into the field selector and killing the render before the
    colour loop ran. Scope selectors with a data attribute.
+6. **A spin can be wrong and still look like motion.** `Rx(t)` sends the spin axis `ŷ` to
+   `(0, cos t, sin t)`; at `t = 72°` that is 95% along `+z` — the view direction — so the globe
+   rotates *in the image plane* like a plate instead of turning like a planet. Four still frames
+   side by side look convincing either way. Decide from pixels, not eyes:
+   `python scripts/check_hero_spin.py` fits a rotation model and a translation model to
+   consecutive frames and fails if the rotation one wins.
 
 ## License
 
