@@ -7,7 +7,7 @@ kept in agreement by scripts/check_version_sync.py, which fails a release when
 any two of the three disagree.
 """
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 # The git tag this version is expected to carry, spelled the way git has it.
 __version_tag__ = f"v{__version__}"

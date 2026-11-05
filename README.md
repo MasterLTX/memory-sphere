@@ -53,8 +53,16 @@ this repository. What you can reproduce here is the next section's set, computed
 
 This section is discipline, not a disclaimer — it decides when you should open it.
 
-A position on this sphere **does not carry semantic proximity**. It is not a semantic map:
-two memories that mean similar things are not guaranteed to land on neighbouring anchors.
+A position on this sphere carries **a weak but real proximity signal, and far too little of it
+to retrieve with**. It is not a semantic map: two memories that mean similar things are
+*more likely than chance* to land close together — 1.8x to 5.9x more likely, depending on the
+test — but the absolute rates stay in the low single digits, so "close together" on this globe
+is not evidence that two memories are about the same thing.
+
+The absolute version of this — "a sphere position does not carry semantic proximity" — is wrong
+on both counts, and the numbers below say why: the signal exists, and a memory's neighbours do
+**not** usually sit on the other side of the globe. Only 15.3% of true neighbours are more than
+half a globe away, against 50.2% for random pairs.
 
 Measured on the 3,000-by-64 synthetic set, recomputed through this project's own pipeline:
 
@@ -64,14 +72,26 @@ Measured on the 3,000-by-64 synthetic set, recomputed through this project's own
 | singular-value ratio (closer to 1 = more isotropic) | 0.906 | 0.928 on real data |
 | sphere centroid offset | 0.006 | 0.058 on real data |
 | top-10 neighbour retention, original 64-D → sphere | **1.40%** | random baseline 0.33% |
+| top-5 true neighbours sharing the memory's own anchor | **0.58%** | random baseline 0.10% (1/1,024) |
+| great-circle distance, memory → its true neighbours (median; half-circle = 1) | **0.272** | random median 0.501 |
+| share of those neighbours beyond half a globe | **15.3%** | random 50.2% |
 | mean cosine similarity inside one anchor | 0.0680 | −0.0004 across anchors |
 
-1.40% against a 0.33% random baseline — the chance that two unrelated 10-sets overlap — is a
-4.2× lift: **the direction is right, the signal is far too weak to retrieve with.** Ask for
-"something like this one" and the original vector space answers with a cosine near 0.9; sphere
-adjacency answers with a 1.40% hit rate.
+Three lifts, one reading: top-10 retention is 1.40% against a 0.33% random baseline — the chance
+that two unrelated 10-sets overlap — a 4.2x lift; a memory's true top-5 neighbours share its own
+anchor 0.58% of the time against 0.10%, a 5.9x lift; and they sit a median 0.272 of a
+half-circle away against 0.501 at random, 1.8x closer. **The direction is right and the signal
+is real; it is still far too weak to retrieve with.** Ask for "something like this one" and the
+original vector space answers with a cosine near 0.9; sphere adjacency answers with a 1.40% hit
+rate.
 
-Reproduce every row with `python scripts/measure_proximity.py`.
+The two facts that decide how to read this: a memory's true neighbours almost always change
+anchor (99.4% of them do), and yet they usually do **not** cross the globe — median 0.272, only
+15.3% beyond half a globe. The anchor is not the neighbourhood, and it is not a coin flip either.
+
+The three new rows use the lookup index's own neighbours, so this table and the shipped
+"true neighbours" jump cannot drift apart. Reproduce every row with
+`python scripts/measure_proximity.py`.
 
 So the boundary is clean:
 
@@ -79,13 +99,17 @@ So the boundary is clean:
 |---|---|
 | where memories are dense | why these two memories are related |
 | where they are active (high PageRank) | why this memory was recalled by that query |
-| which region new memories land in | where one specific memory is |
-| how density migrates over time (25-frame slider) | what semantic topic a hill represents |
+| which region new memories land in, and where one specific memory sits | how to rank search results by sphere adjacency (a 5.9x lift is not a ranking) |
+| how density migrates over time (25-frame slider) | what a ridge means on its own — its name is a word count, never a topic |
 
 One line: **this is a health dashboard for a memory system, not a search entrance.**
 
 A hill means "this patch of the sphere holds many memories with high count / PageRank /
 entity count" — not "this patch is one semantic topic".
+
+A named ridge is not an exception to that. From 1.1.0 every region label is printed with the
+statistic that earns it (`auth · 57.3% 的记忆含该词（随机 16.5%）`), never on its own, because a
+bare label would read as a topic and contradict this section.
 
 ## Quick start
 
@@ -95,7 +119,7 @@ cd memory-sphere
 python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-python -m sphere --version   # -> memory-sphere 1.0.1 (tag v1.0.1)
+python -m sphere --version   # -> memory-sphere 1.1.0 (tag v1.1.0)
 python -m sphere demo        # synthesises 3,000 fake memories, builds the globe
 open out/sphere_timeline.html
 ```
@@ -128,7 +152,7 @@ sphere/pipeline/   the original flat scripts (being folded into a package)
 adapters/          exporters that produce the four input files
 docs/              publishing walkthrough, Pages deck
 examples/          committed demo output
-scripts/           release gates: hero spin direction, bilingual drift, version sync
+scripts/           release gates: hero spin, bilingual drift, version sync, index, deck
 ```
 
 ## Pitfalls already paid for

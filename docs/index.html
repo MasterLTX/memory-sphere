@@ -60,6 +60,12 @@
 
   #boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
     background:#05070d;color:#5f7089;font-size:12px;letter-spacing:.2em;z-index:20;transition:opacity .5s}
+
+  /* ---- RENDER (C) ---- deep-space falloff. A pseudo-element, so it adds no markup and
+     sits at z-index 1: above the canvas, below every .hud (z 5) and #boot (z 20). ---- */
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
+    background:radial-gradient(115% 118% at 50% 47%,
+      rgba(0,0,0,0) 45%,rgba(3,6,13,.20) 80%,rgba(1,2,6,.44) 100%)}
 </style>
 </head>
 <body>
@@ -166,6 +172,73 @@ const key = new THREE.DirectionalLight(0xfff2dd, 1.15); key.position.set(-1.05, 
 const fill = new THREE.DirectionalLight(0x8fa4c8, 0.34); fill.position.set(1.0, -0.7, -0.35); scene.add(fill);
 const rim  = new THREE.DirectionalLight(0x9cc4e8, 0.26); rim.position.set(0.4, -1.0, -0.9); scene.add(rim);
 
+// ---------- C1 · STARFIELD ----------
+// ~2500 stars on a shell r 8..14. Sizes follow a power law by tier (14 bright / 210 mid /
+// the rest faint) instead of one uniform size, so the field reads as sky, not as noise.
+// Sprite core is deliberately tight: no star may bloom into a soft ball.
+const STARS = (function(){
+  if (!THREE.Points || !THREE.CanvasTexture) return null;
+  const N = 2500;
+  const tex = (function(){
+    const S = 64, cv2 = document.createElement('canvas');
+    cv2.width = cv2.height = S;
+    const g2 = cv2.getContext('2d');
+    const rg = g2.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+    rg.addColorStop(0.00, 'rgba(255,255,255,1)');
+    rg.addColorStop(0.28, 'rgba(255,255,255,0.94)');
+    rg.addColorStop(0.52, 'rgba(255,255,255,0.34)');
+    rg.addColorStop(0.78, 'rgba(255,255,255,0.06)');
+    rg.addColorStop(1.00, 'rgba(255,255,255,0)');
+    g2.fillStyle = rg; g2.fillRect(0, 0, S, S);
+    const t = new THREE.CanvasTexture(cv2);
+    if ('colorSpace' in t && THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  })();
+  const group = new THREE.Group();
+  const tiers = [ {n:14, px:8.0, op:1.00}, {n:210, px:3.8, op:0.95}, {n:N-224, px:2.2, op:0.85} ];
+  const regs = [];
+  for (let ti=0; ti<tiers.length; ti++){
+    const nc = tiers[ti].n;
+    const P = new Float32Array(nc*3), C = new Float32Array(nc*3);
+    for (let i=0;i<nc;i++){
+      const u = Math.random()*2-1, ph = Math.random()*Math.PI*2;
+      const sr = Math.sqrt(Math.max(0, 1-u*u));
+      const rr = 8.0 + 6.0*Math.pow(Math.random(), 0.55);   // biased outward
+      P[i*3] = sr*Math.cos(ph)*rr; P[i*3+1] = u*rr; P[i*3+2] = sr*Math.sin(ph)*rr;
+      const k = Math.random();
+      let cr = 0.88, cg = 0.93, cb = 1.00;                   // cool white (majority)
+      if (k < 0.22)      { cr = 0.66; cg = 0.79; cb = 1.00; }  // bluish
+      else if (k < 0.40) { cr = 1.00; cg = 0.91; cb = 0.78; }  // warm white
+      else if (k > 0.94) { cr = 1.00; cg = 1.00; cb = 1.00; }  // rare pure white
+      C[i*3] = cr; C[i*3+1] = cg; C[i*3+2] = cb;
+    }
+    const gg = new THREE.BufferGeometry();
+    gg.setAttribute('position', new THREE.BufferAttribute(P, 3));
+    gg.setAttribute('color', new THREE.BufferAttribute(C, 3));
+    const mm = new THREE.PointsMaterial({
+      map: tex, size: tiers[ti].px, sizeAttenuation: true, vertexColors: true,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      opacity: tiers[ti].op
+    });
+    const pts = new THREE.Points(gg, mm);
+    pts.frustumCulled = false;      // the shell always straddles the frustum
+    pts.renderOrder = -10;          // behind the globe; depthTest still hides what it must
+    group.add(pts);
+    regs.push({ mat: mm, px: tiers[ti].px, op: tiers[ti].op, ph: ti*2.1 });
+  }
+  scene.add(group);
+  // gl_PointSize = size * (canvasHeight*0.5 / dist): invert it so a tier lands on its
+  // intended CSS-pixel size at any viewport height and any devicePixelRatio.
+  function sizeStars(){
+    const ch = Math.max(240, cv.clientHeight || 800);
+    for (let i=0;i<regs.length;i++) regs[i].mat.size = regs[i].px * 22.0 / ch;
+  }
+  sizeStars();
+  window.addEventListener('resize', sizeStars);
+  return { regs: regs, sizeStars: sizeStars };
+})();
+
 function weld(g){
   const pos = g.attributes.position, n = pos.count;
   const map = new Map(), remap = new Int32Array(n), verts = [];
@@ -204,11 +277,47 @@ const STOPS = [
   [0.180,0.560,0.365],[0.510,0.660,0.290],[0.860,0.715,0.320],[1.000,0.935,0.770]
 ];
 const TINT = [[0.28,0.52,1.00],[0.34,0.95,0.58],[1.00,0.40,0.32]];
+// C4 · SNOW band. The eight original stops are untouched, so the palette below SNOW_TOP
+// is bit-identical to v1.0. Only the crest lerps toward #e8f3ff — a suggestion of altitude.
+const SNOW = [0.910, 0.953, 1.000];
+const SNOW_TOP = 0.88;
 function palette(h){
-  const x = Math.max(0,Math.min(1,h))*(STOPS.length-1);
+  const hh = Math.max(0,Math.min(1,h));
+  const x = hh*(STOPS.length-1);
   const i = Math.min(STOPS.length-2, Math.floor(x)), f = x-i;
   const a = STOPS[i], b = STOPS[i+1];
-  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+  let r = a[0]+(b[0]-a[0])*f, g = a[1]+(b[1]-a[1])*f, bl = a[2]+(b[2]-a[2])*f;
+  if (hh > SNOW_TOP){
+    const u = (hh - SNOW_TOP) / (1 - SNOW_TOP);
+    const k = Math.pow(u*u*(3-2*u), 1.35) * 0.90;   // eased, capped short of a painted cap
+    r += (SNOW[0]-r)*k; g += (SNOW[1]-g)*k; bl += (SNOW[2]-bl)*k;
+  }
+  return [r, g, bl];
+}
+// Quantiles of the live 32x32 height field — the snow line and the waterline both follow
+// the DATA, never a constant. Measured fields here run min~0.25 / p50~0.59 / max~0.83, so a
+// hard-coded waterline sits below every vertex and the ocean would never appear at all.
+const _fld = new Float32Array(NB2);
+function fieldQuantile(A, B, ft, q){
+  if (!A || A.length < NB2) return NaN;
+  const lp = ft > 1e-4 && B && B.length >= NB2;
+  for (let k=0;k<NB2;k++) _fld[k] = lp ? A[k]*(1-ft) + B[k]*ft : A[k];
+  _fld.sort();                                   // TypedArray sort is numeric
+  const p = _fld[Math.min(NB2-1, Math.max(0, Math.round((NB2-1)*q)))];
+  return p === p ? p : NaN;                      // NaN guard
+}
+// snow line = p90, clamped so a flat field cannot snow over the whole sphere
+function snowLineOf(A, B, ft){
+  const p = fieldQuantile(A, B, ft, 0.90);
+  return p === p ? Math.max(0.55, Math.min(0.92, p)) : 0.86;
+}
+// waterline = p25 (v1.1; was p15, which covered only the deepest tail and read as a few faint
+// specks on a real 1258x802 render). The clamp still bites a real low tail and can never rise
+// into ridge territory: on the shipped field p25 peaks at 0.553, so the 0.58 ceiling is inert
+// here and only guards a degenerate/flat field.
+function waterLineOf(A, B, ft){
+  const p = fieldQuantile(A, B, ft, 0.25);
+  return p === p ? Math.max(0.10, Math.min(0.58, p)) : 0.20;
 }
 function samp(A, fi, fj){
   const i0 = Math.max(0,Math.min(NB-1,Math.floor(fi))), i1 = Math.min(NB-1,i0+1);
@@ -229,17 +338,119 @@ for (let i=0;i<VN;i++){
   binOf[i] = ii*NB+jj;
 }
 
+// ---------- C3 · main globe + peak-hugging GLOW shell ----------
+// Colour now comes per-vertex from palette(h) (C4 adds the cool crest band).
 const mat = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.82, metalness:0.06});
 const mesh = new THREE.Mesh(geo, mat);
 scene.add(mesh);
 
+// Glow = additive shell sharing the SAME topology and displacement as the globe, pushed
+// outward by a small fraction of the local height excess. Its per-vertex alpha is exactly
+// 0 below the snow line, so it cannot bleed over the whole sphere or turn a crest into a
+// soft ball: the halo stays within ~1.1x the peak's own radius.
+const glowGeo = geo.clone();
+const glowPosAttr = glowGeo.attributes.position;
+const glowColAttr = glowGeo.attributes.color;
+const glowA = new Float32Array(VN);
+glowGeo.setAttribute('aGlow', new THREE.BufferAttribute(glowA, 1));
+const glowMat = new THREE.ShaderMaterial({
+  vertexColors: true, transparent: true, depthWrite: false,
+  blending: THREE.AdditiveBlending, side: THREE.FrontSide,
+  vertexShader: [
+    'attribute float aGlow;',
+    'varying vec3 vC;',
+    'varying float vA;',
+    'void main(){',
+    '  vC = color;',
+    '  vA = aGlow;',
+    '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+    '}'
+  ].join('\n'),
+  fragmentShader: [
+    'varying vec3 vC;',
+    'varying float vA;',
+    'void main(){',
+    '  if (vA <= 0.002) discard;',   // hard gate: nothing additive outside the crests
+    '  gl_FragColor = vec4(vC, vA);', // AdditiveBlending multiplies by alpha once
+    '}'
+  ].join('\n')
+});
+const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+glowMesh.frustumCulled = false;
+glowMesh.renderOrder = 2;
+scene.add(glowMesh);
+
+// ---------- C2 · OCEAN ----------
+// A translucent water plane at a DATA-relative waterline (p25 of the field). It is
+// deliberately NOT a closed sphere: it reuses the globe's own topology, and per vertex it
+// sits at the waterline inside a basin while hugging the terrain (alpha 0) everywhere
+// above it. A closed sphere at a fixed radius paints a blue film over the entire far
+// hemisphere — measured on a real render, not guessed — because its near surface is nearer
+// than the far terrain. Clipping to the basins removes that failure mode completely.
+const waterGeo = geo.clone();
+const waterPosAttr = waterGeo.attributes.position;
+const waterA = new Float32Array(VN);
+waterGeo.setAttribute('aWat', new THREE.BufferAttribute(waterA, 1));
+const waterMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, side: THREE.FrontSide,
+  uniforms: {
+    // Vector3, not Color: r160 colour management would sRGB->linear these and the shader
+    // writes them straight out, so literal values are what reach the screen.
+    uDeep: { value: new THREE.Vector3(0.165, 0.435, 0.561) },   // #2a6f8f
+    uRim:  { value: new THREE.Vector3(0.612, 0.878, 0.965) },   // #9ce0f6
+    uOp:   { value: 1.0 }
+  },
+  vertexShader: [
+    'attribute float aWat;',
+    'varying vec3 vP;',
+    'varying float vW;',
+    'void main(){',
+    '  vec4 wp = modelMatrix * vec4(position, 1.0);',
+    '  vP = wp.xyz;',
+    '  vW = aWat;',
+    '  gl_Position = projectionMatrix * viewMatrix * wp;',
+    '}'
+  ].join('\n'),
+  fragmentShader: [
+    'uniform vec3 uDeep;',
+    'uniform vec3 uRim;',
+    'uniform float uOp;',
+    'varying vec3 vP;',
+    'varying float vW;',
+    'void main(){',
+    '  if (vW <= 0.01) discard;',                 // nothing outside the basins, ever
+    '  vec3 N = normalize(vP);',                  // radial normal = the water plane's normal
+    '  vec3 V = normalize(cameraPosition - vP);',
+    '  float f = clamp(1.0 - abs(dot(N, V)), 0.0, 1.0);',
+    '  float ff = pow(f, 2.6);',                   // fresnel rim only, not a hazy ball
+    '  vec3 col = mix(uDeep, uRim, ff * 0.85);',
+    '  gl_FragColor = vec4(col, (0.24 + 0.46 * ff) * vW * uOp);',   // v1.1: base 0.16 -> 0.24
+    '}'
+  ].join('\n')
+});
+const water = new THREE.Mesh(waterGeo, waterMat);
+water.frustumCulled = false;
+water.renderOrder = 1;
+scene.add(water);
+
 let hVert = new Float32Array(VN);
+const GCORE = [1.00, 0.86, 0.62];       // C3 · warm crest colour for the glow shell
 function rebuild(){
   const t = Math.max(0, Math.min(TMAX, frameT));
   const a = Math.floor(t), b = Math.min(TMAX, a+1), ft = t-a;
   const A = FRAMES[a], B = FRAMES[b];
   const lerp = ft > 1e-4 && b !== a;
   const p = posAttr.array, c = colors;
+  // C4/C3 · snow line = p90 of this frame's field; C2 · waterline = p25 of the same field.
+  const snowLine = snowLineOf(A, B, lerp ? ft : 0);
+  const waterH = waterLineOf(A, B, lerp ? ft : 0);
+  const rWater = 1 + alpha*(waterH-0.5) + 0.0030;   // waterline radius, inside the basins
+  // Halo reach is deliberately small: at 0.35 the additive shell pushed the measured
+  // silhouette bbox out by ~24px. v1.1 raises 0.16 -> 0.20 because at 0.16 the crest halo was
+  // invisible on a real render; 0.22 is the verified silhouette-safe ceiling, so stay below it.
+  const gPush = alpha*0.20;             // max outward push of the glow shell
+  const gp = glowPosAttr.array, gcA = glowColAttr.array;
+  const wp = waterPosAttr.array;
   for (let i=0;i<VN;i++){
     const fi = fIv[i], fj = fJv[i];
     let h = samp(A, fi, fj);
@@ -258,9 +469,39 @@ function rebuild(){
       const tint = TINT[0][ch]*tw + TINT[1][ch]*te + TINT[2][ch]*to;
       c[i*3+ch] = Math.min(1, base[ch]*(0.58+0.42*tint));
     }
+    // C4 · snow lerp. Above the field's own p90 the vertex cools toward #e8f3ff, weight
+    // rising with h but capped low — altitude, not a painted cap.
+    let gg = 0;
+    if (h > snowLine){
+      const uu = Math.min(1, (h - snowLine) / Math.max(1e-3, 1 - snowLine));
+      const sw = uu*uu*(3-2*uu) * 0.45;
+      for (let ch=0;ch<3;ch++) c[i*3+ch] += (SNOW[ch] - c[i*3+ch]) * sw;
+      gg = uu;
+    }
+    // C3 · glow shell vertex: same direction, pushed out by a fraction of the crest excess.
+    // glowA is 0 at/below the snow line, so the additive pass can only touch crests.
+    const gr = r + 0.0016 + gPush*gg*gg;
+    gp[i*3]   = dirs[i*3]*gr;
+    gp[i*3+1] = dirs[i*3+1]*gr;
+    gp[i*3+2] = dirs[i*3+2]*gr;
+    glowA[i] = gg*gg*0.55;
+    gcA[i*3] = GCORE[0]; gcA[i*3+1] = GCORE[1]; gcA[i*3+2] = GCORE[2];
+    // C2 · water vertex: flat at the waterline inside a basin, hugging the terrain above
+    // it with alpha 0. Nothing of the ocean exists outside the trenches.
+    const wr = r < rWater ? rWater : r + 0.0012;
+    wp[i*3]   = dirs[i*3]*wr;
+    wp[i*3+1] = dirs[i*3+1]*wr;
+    wp[i*3+2] = dirs[i*3+2]*wr;
+    const dw = (rWater - r) / Math.max(1e-4, alpha*0.22);
+    waterA[i] = dw <= 0 ? 0 : (dw > 1 ? 1 : dw);
   }
   posAttr.needsUpdate = true;
   geo.attributes.color.needsUpdate = true;
+  glowPosAttr.needsUpdate = true;
+  glowColAttr.needsUpdate = true;
+  glowGeo.attributes.aGlow.needsUpdate = true;
+  waterPosAttr.needsUpdate = true;
+  waterGeo.attributes.aWat.needsUpdate = true;
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
   updateHud();
@@ -352,6 +593,513 @@ window.addEventListener('resize', resize);
 resize();
 rebuild();
 
+// ---------- C1 · star twinkle ----------
+// Opacity only — no vertex moves, so this can never register as geometry motion.
+// Bright tiers stir least, faint field most, giving the shell a slow breathing quality.
+function tickStars(ms){
+  if (!STARS) return;
+  const s = ms*0.001;
+  for (let i=0;i<STARS.regs.length;i++){
+    const r = STARS.regs[i];
+    r.mat.opacity = r.op * (0.90 + 0.10*Math.sin(s*(0.27 + i*0.19) + r.ph));
+  }
+}
+
+// ===================== [jx] INTERACTION LAYER (package B) =====================
+// BUILD 1 search · BUILD 2 region drill-down · BUILD 3 true-neighbour jump.
+// Additive only: UI wiring, one marker object of its own, one rAF tick of its own.
+// It never edits scene construction, the render loop, palette, rebuild or any material;
+// it writes camTheta/camPhi (which applyCamera() already consumes every frame) and reads
+// binOf (the vertex->cell map the renderer already built). Wrapped in try/catch so a
+// missing index, missing regions or missing layers degrade to a working page.
+// v1.1: this layer's markup is appended at the TAIL of <body>, i.e. AFTER this script, so on a
+// cold parse $('jxq') is still null and the guard below bailed out — the whole layer then stayed
+// inert for the session and NO anchor could open the panel. Initialise on DOMContentLoaded.
+let JX = null;
+function jxInit(){
+  try {
+    JX = (function(){
+    'use strict';
+    const $ = function(id){ return document.getElementById(id); };
+    const qin=$('jxq'), hitEl=$('jxhit'), panel=$('jxpanel'), pTitle=$('jxpt'),
+          pStat=$('jxs'), listEl=$('jxlist'), warnEl=$('jxwarn'), noteEl=$('jxn'),
+          closeBtn=$('jxpc');
+    if (!qin || !panel || !pTitle || !listEl) return null;    // markup stripped: stay out
+
+    const DEF_TH = camTheta, DEF_PH = camPhi;   // the page's own start; read, never hardcoded
+    const CAP = 200;                            // rows drawn per region
+    const WARN = '同一区域 ≠ 语义相近：区内记忆在原始空间的平均余弦只有 0.07';
+
+    // ----- region table: cell -> region. Cells are disjoint in practice; if they are
+    // not, the higher-lift (more distinctive) region wins, deterministically.
+    let REGS = [];
+    try {
+      if (DATA && DATA.regions && Array.isArray(DATA.regions.regions)){
+        REGS = DATA.regions.regions.filter(function(r){
+          return r && Array.isArray(r.cells) && r.cells.length > 0; });
+      }
+    } catch(e){ REGS = []; }
+    const cellReg = new Map();
+    (function(){
+      const sc = function(r){ const v = +r.lift; return isFinite(v) ? v : r.cells.length; };
+      for (let i=0;i<REGS.length;i++){
+        const r = REGS[i], cs = r.cells;
+        for (let j=0;j<cs.length;j++){
+          const c = cs[j]|0, p = cellReg.get(c);
+          if (p === undefined || sc(r) > sc(p)) cellReg.set(c, r);
+        }
+      }
+    })();
+
+    // ----- optional layers -----
+    let PR = null;
+    try { if (DATA && DATA.layers && DATA.layers.pagerank) PR = dec(DATA.layers.pagerank); } catch(e){ PR = null; }
+    const TNAME = ['world','experience','observation'];
+    let DOMT = null;
+    try {
+      if (DATA && Array.isArray(DATA.types) && DATA.types.length >= 3){
+        const T = [dec(DATA.types[0]), dec(DATA.types[1]), dec(DATA.types[2])];
+        DOMT = new Int8Array(NB2);
+        for (let c=0;c<NB2;c++){
+          let bi = 0, bv = -1;
+          for (let t=0;t<3;t++){ if (T[t][c] > bv){ bv = T[t][c]; bi = t; } }
+          DOMT[c] = bi;
+        }
+      }
+    } catch(e){ DOMT = null; }
+
+    // ----- cell <-> direction. Must follow the pipeline's own convention
+    // (build_regions.py: lat=(ci+0.5)/NB*180-90) which is what binOf() encodes:
+    // verified 1024/1024 round-trip against the shipped grids.
+    function cellDir(cell){
+      const row = Math.floor(cell/NB), col = cell % NB;
+      const th = ((row + 0.5)/NB)*Math.PI - Math.PI/2;
+      const ph = ((col + 0.5)/NB)*Math.PI*2 - Math.PI;
+      const ct = Math.cos(th);
+      return [ct*Math.cos(ph), Math.sin(th), ct*Math.sin(ph)];
+    }
+    function cellOfDir(x,y,z){
+      const th = Math.asin(Math.max(-1,Math.min(1,y))), ph = Math.atan2(z,x);
+      const fi = (th + Math.PI/2)/Math.PI*NB - 0.5;
+      const fj = ((ph + Math.PI)/(2*Math.PI))*NB - 0.5;
+      const ii = Math.max(0, Math.min(NB-1, Math.floor(fi + 1e-9)));   // 1e-9: floor() at a bin edge
+      const jj = ((Math.floor(fj + 1e-9) % NB) + NB) % NB;
+      return ii*NB + jj;
+    }
+    // great-circle angle between two anchors, normalised: 0 = same anchor, 1 = antipodal
+    function anchorArc(a,b){
+      const p = cellDir(a), q = cellDir(b);
+      const d = p[0]*q[0] + p[1]*q[1] + p[2]*q[2];
+      return Math.acos(Math.max(-1, Math.min(1, d)))/Math.PI;
+    }
+    // the displaced radius of one cell at the current frame/slider, mirroring rebuild()
+    function localRadius(cell){
+      const row = Math.floor(cell/NB), col = cell % NB;
+      const t = Math.max(0, Math.min(TMAX, frameT));
+      const a = Math.floor(t), b = Math.min(TMAX, a+1), ft = t - a;
+      let h = samp(FRAMES[a], row, col);
+      if (ft > 1e-4 && b !== a) h = h*(1-ft) + samp(FRAMES[b], row, col)*ft;
+      return 1 + alpha*(h - 0.5);
+    }
+
+    // ----- the on-demand index. Fetched once, on first use; failure never breaks the page.
+    let IDX = null, idxP = null, idxErr = '';
+    function u16(b64){
+      const s = atob(b64), a = new Uint8Array(s.length);
+      for (let i=0;i<s.length;i++) a[i] = s.charCodeAt(i);
+      const o = new Uint16Array(a.length >> 1);
+      for (let i=0;i<o.length;i++) o[i] = a[i<<1] | (a[(i<<1)+1] << 8);   // little-endian
+      return o;
+    }
+    function decodeIdx(j){
+      if (!j) throw new Error('空索引');
+      const n = j.n|0, k = j.k|0;
+      if (!n || !Array.isArray(j.ids) || j.ids.length < n) throw new Error('索引字段不全');
+      const idbin = u16(j.idbin), knn = u16(j.knn);
+      if (idbin.length < n) throw new Error('idbin 长度不足');
+      if (knn.length < n*k) throw new Error('knn 长度不足');
+      const cells = new Map();
+      for (let i=0;i<n;i++){
+        const c = idbin[i] & (NB2-1);
+        let l = cells.get(c);
+        if (!l){ l = []; cells.set(c, l); }
+        l.push(i);
+      }
+      return { n:n, k:k, ids:j.ids, idbin:idbin, knn:knn, cells:cells,
+               cross:j.crossAnchor, types:Array.isArray(j.types) ? j.types : null };
+    }
+    function loadIdx(){
+      if (!idxP){
+        idxP = fetch('web_data.extra.json').then(function(r){
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then(function(j){ IDX = decodeIdx(j); return IDX; })
+          .catch(function(e){
+            idxErr = (e && e.message) || '加载失败';
+            idxP = null;                        // allow a retry (e.g. once served over http)
+            throw e;
+          });
+      }
+      return idxP;
+    }
+
+    // ----- marker: this layer's own scene object, added from here (no scene edits)
+    let mk = null, mkRing = null, mkCell = -1, mkT0 = 0;
+    try {
+      mk = new THREE.Group();
+      mkRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.062, 0.100, 40),
+        new THREE.MeshBasicMaterial({ color:0x9fd4ff, transparent:true, opacity:0.9,
+                                      side:THREE.DoubleSide, depthWrite:false }));
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(0.019, 14, 10),
+        new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.95, depthWrite:false }));
+      mk.add(mkRing); mk.add(core);
+      mk.visible = false;
+      scene.add(mk);
+    } catch(e){ mk = null; }
+
+    function placeMarker(){
+      if (!mk || mkCell < 0) return;
+      const d = cellDir(mkCell);
+      // hug the surface but clear it, and clear the C3 glow shell's max outward push
+      const R = localRadius(mkCell) + 0.06 + alpha*0.20;
+      mk.position.set(d[0]*R, d[1]*R, d[2]*R);
+      mk.lookAt(0, 0, 0);                       // ring plane faces the centre
+    }
+    function showMarker(cell){
+      mkCell = cell | 0; mkT0 = performance.now();
+      placeMarker();
+      if (mk) mk.visible = true;
+    }
+    function hideMarker(){ mkCell = -1; if (mk) mk.visible = false; }
+
+    // ----- camera: set camTheta/camPhi targets; applyCamera() keeps doing the positioning
+    let fly = null;
+    function flyTo(th1, ph1, ms){
+      let d = th1 - camTheta;
+      d = Math.atan2(Math.sin(d), Math.cos(d));            // shortest way round the sphere
+      fly = { t0: performance.now(), dur: (ms || 560),
+              th0: camTheta, ph0: camPhi, th1: camTheta + d,
+              ph1: Math.max(0.12, Math.min(Math.PI - 0.12, ph1)),
+              spin: autoSpin };
+      autoSpin = false;      // restored when the fly ends, so the default spin rate is never
+    }                        // altered by anything this layer does
+    function flyToAnchor(cell){
+      const d = cellDir(cell);
+      flyTo(Math.atan2(d[2], d[0]), Math.acos(Math.max(-1, Math.min(1, d[1]))));
+    }
+    function flyToDefault(){ flyTo(DEF_TH, DEF_PH); }
+
+    function jxTick(){
+      requestAnimationFrame(jxTick);
+      const now = performance.now();
+      if (fly){
+        let u = (now - fly.t0)/fly.dur;
+        if (u < 0) u = 0; else if (u > 1) u = 1;
+        const e = u < 0.5 ? 2*u*u : -1 + (4 - 2*u)*u;      // easeInOutQuad
+        camTheta = fly.th0 + (fly.th1 - fly.th0)*e;
+        camPhi   = fly.ph0 + (fly.ph1 - fly.ph0)*e;
+        if (u >= 1){ autoSpin = fly.spin; fly = null; }
+      }
+      if (mk && mk.visible){
+        placeMarker();                                    // stays glued while the slider moves
+        const s = 1 + 0.20*(0.5 + 0.5*Math.sin((now - mkT0)*0.005));
+        mkRing.scale.set(s, s, 1);
+        mkRing.material.opacity = 0.55 + 0.42*(0.5 + 0.5*Math.cos((now - mkT0)*0.005));
+      }
+    }
+
+    // ----- small helpers
+    function pct(v){ return (typeof v === 'number' && isFinite(v)) ? (v*100).toFixed(1) : '—'; }
+    function esc(s){
+      return String(s === undefined || s === null ? '' : s)
+        .replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; });
+    }
+    function setHit(t){ if (hitEl) hitEl.textContent = t || ''; }
+    let hintT = 0;
+    function hint(t){
+      setHit(t);
+      if (hintT) clearTimeout(hintT);
+      hintT = setTimeout(function(){ hintT = 0; if (!(qin.value || '').trim()) setHit(''); }, 1500);
+    }
+
+    // ===== BUILD 1 · SEARCH =====
+    let hits = [], hi = -1, hitsQ = '';
+    function findMatches(J, q){
+      const ids = J.ids, ql = q.toLowerCase(), out = [];
+      for (let i=0;i<ids.length;i++){                      // exact id first
+        if (String(ids[i]).toLowerCase() === ql) out.push(i);
+      }
+      if (out.length) return out;
+      for (let i=0;i<ids.length;i++){                      // then case-insensitive substring
+        if (String(ids[i]).toLowerCase().indexOf(ql) >= 0) out.push(i);
+      }
+      return out;
+    }
+    function doSearch(){
+      const q = (qin.value || '').trim();
+      if (!q){ resetView(); return; }                       // empty query = the default view
+      setHit('查询中');
+      loadIdx().then(function(J){
+        const m = findMatches(J, q);
+        if (!m.length){ hits = []; hi = -1; hitsQ = q; setHit('0 条'); return; }
+        const sameQ = (q === hitsQ), prev = hi;
+        hits = m;
+        hi = (sameQ && prev >= 0 && prev < m.length - 1) ? prev + 1 : 0;   // Enter again = next
+        hitsQ = q;
+        const cell = J.idbin[hits[hi]] & (NB2-1);
+        showMarker(cell);
+        flyToAnchor(cell);
+        setHit((hi + 1) + '/' + m.length + ' · 锚点 ' + cell);
+      }).catch(function(){ setHit('索引不可用'); });
+    }
+    function resetView(){
+      hideMarker(); hits = []; hi = -1; hitsQ = ''; setHit('');
+      qin.value = '';
+      flyToDefault();
+    }
+
+    // ===== BUILD 2 · DRILL-DOWN =====
+    let curReg = null, curAnchor = -1;
+    function openRegion(reg){
+      curReg = reg; curAnchor = -1;
+      panel.classList.add('on');
+      // The statistic sits next to the name, always: v1.0.1 measured that a sphere
+      // position barely carries semantic proximity, so a bare label would be a lie.
+      const isWord = (reg.source === undefined || reg.source === 'text');
+      const label = (reg.label === undefined || reg.label === null || reg.label === '')
+        ? '未命名区域' : String(reg.label);
+      pTitle.textContent = '';
+      const b = document.createElement('b'); b.textContent = label;
+      pTitle.appendChild(b);
+      pTitle.appendChild(document.createTextNode(
+        ' · ' + pct(reg.purity) + '% 的记忆含' + (isWord ? '该词' : '该特征') +
+        '（随机 ' + pct(reg.baseline) + '%）'));
+      if (warnEl) warnEl.textContent = WARN;
+      pStat.textContent = '读取索引…';
+      listEl.innerHTML = '';
+      loadIdx().then(function(J){ renderRegion(reg, J); })
+        .catch(function(){
+          pStat.textContent = '索引未加载';
+          listEl.innerHTML = '<div class="jxnote jxerr">真近邻索引未加载：' + esc(idxErr) +
+            '<br>用 http:// 打开页面即可（file:// 下浏览器会拦 fetch）。<br>区域标注与统计不受影响。</div>';
+        });
+    }
+    function renderRegion(reg, J){
+      const cells = reg.cells || [], mems = [];
+      for (let i=0;i<cells.length;i++){
+        const l = J.cells.get(cells[i]|0);
+        if (l) for (let j=0;j<l.length;j++) mems.push(l[j]);
+      }
+      renderList(mems, J, '该区域没有收录到记忆');
+    }
+    // ----- v1.1: EVERY anchor is drillable, not only the 233 that sit inside a ridge/trench
+    // region. An unlabelled anchor opens on its own identity — no region name and no purity
+    // claim is invented for it — and its list is that anchor's own memories, same row format,
+    // same PageRank ordering, same 200 cap.
+    function anchorCount(cell){
+      // DATA.count ships in the main payload, and CNT*nmax reproduces the index's own per-cell
+      // membership exactly (verified 1024/1024 cells on the shipped set), so the header still
+      // states a true count when web_data.extra.json cannot be fetched (file://).
+      const v = CNT ? CNT[cell] : NaN;
+      return (typeof v === 'number' && isFinite(v)) ? Math.round(v * NMAX) : null;
+    }
+    function coordOf(cell){
+      const d = cellDir(cell);
+      const lat = Math.asin(Math.max(-1, Math.min(1, d[1]))) * 180 / Math.PI;
+      const lon = Math.atan2(d[2], d[0]) * 180 / Math.PI;
+      return Math.abs(Math.round(lat)) + (lat >= 0 ? 'N' : 'S') + ' ' +
+             Math.abs(Math.round(lon)) + (lon >= 0 ? 'E' : 'W');
+    }
+    function openAnchor(cell){
+      cell = cell | 0;
+      const reg = cellReg.get(cell);
+      if (reg){ openRegion(reg); return; }        // labelled anchor: today's header, unchanged
+      curReg = null; curAnchor = cell;
+      panel.classList.add('on');
+      const n = anchorCount(cell);
+      pTitle.textContent = '';
+      const b = document.createElement('b'); b.textContent = '锚点 ' + cell;
+      pTitle.appendChild(b);
+      pTitle.appendChild(document.createTextNode(
+        ' · ' + coordOf(cell) + ' · ' + (n === null ? '记忆数未知' : n + ' 条记忆')));
+      if (warnEl) warnEl.textContent = WARN;      // permanent warning line, both paths
+      pStat.textContent = '读取索引…';
+      listEl.innerHTML = '';
+      loadIdx().then(function(J){ renderAnchorPanel(cell, J); })
+        .catch(function(){
+          pStat.textContent = '索引未加载';
+          listEl.innerHTML = '<div class="jxnote jxerr">真近邻索引未加载：' + esc(idxErr) +
+            '<br>用 http:// 打开页面即可（file:// 下浏览器会拦 fetch）。<br>' +
+            '锚点坐标与记忆条数不受影响；逐条清单需要该索引。</div>';
+        });
+    }
+    function renderAnchorPanel(cell, J){
+      const l = J.cells.get(cell);       // cell -> [memory index], built once when the index lands
+      renderList(l ? l.slice(0) : [], J, '该锚点没有收录到记忆');
+      const note = document.createElement('div');
+      note.className = 'jxnote';
+      note.textContent = '该锚点无区域标注（' + cellReg.size + '/' + NB2 +
+        ' 个锚点有标注）：上面是它自己的记忆，不是一个区域的语义集合。';
+      listEl.appendChild(note);
+    }
+    // One row renderer for both drill-down paths: same rows, same ordering, same cap.
+    function renderList(mems, J, emptyMsg){
+      if (PR){                                            // PageRank of the anchor, descending
+        mems.sort(function(x,y){
+          const px = PR[J.idbin[x]], py = PR[J.idbin[y]];
+          return (py - px) || (x - y);
+        });
+      } else {
+        mems.sort(function(x,y){ return x - y; });         // no layer: stable, and said so
+      }
+      const N = mems.length, show = Math.min(CAP, N);
+      pStat.textContent = '';
+      pStat.appendChild(document.createTextNode(
+        N + ' 条记忆 · 按锚点 ' + (PR ? 'PageRank' : '序号') + ' 降序'));
+      if (typeof J.cross === 'number' && isFinite(J.cross)){
+        pStat.appendChild(document.createElement('br'));
+        pStat.appendChild(document.createTextNode(
+          '真近邻索引 ' + J.n + ' 条 · ' + (Math.round(J.cross*1000)/10) + '% 的真近邻落在别的锚点'));
+      }
+      let html = '';
+      if (N > CAP) html += '<div class="jxnote">显示前 ' + CAP + ' / 共 ' + N + ' 条</div>';
+      if (!N) html += '<div class="jxnote">' + (emptyMsg || '该区域没有收录到记忆') + '</div>';
+      for (let r=0;r<show;r++){
+        const i = mems[r], id = J.ids[i], anc = J.idbin[i] & (NB2-1);
+        const ty = J.types ? String(J.types[i]) : (DOMT ? TNAME[DOMT[anc]] + '*' : '—');
+        html += '<div class="jxrow">'
+              +   '<span class="jxid" title="' + esc(id) + '">' + esc(id) + '</span>'
+              +   '<span class="jxtype">' + esc(ty) + '</span>'
+              +   '<span class="jxanc">' + anc + '</span>'
+              +   '<span class="jxrk">#' + (r+1) + '</span>'
+              +   '<button type="button" class="jxnn" data-i="' + i + '" data-c="' + anc + '">真近邻</button>'
+              + '</div>';
+      }
+      listEl.innerHTML = html;
+    }
+
+    // ===== BUILD 3 · TRUE NEIGHBOURS =====
+    function expandNeighbours(btn, i, anc){
+      const row = btn.parentNode;
+      let box = row.nextElementSibling;
+      if (box && box.className === 'jxnbx'){
+        const on = box.style.display !== 'none';
+        box.style.display = on ? 'none' : 'block';
+        btn.classList.toggle('on', !on);
+        return;
+      }
+      box = document.createElement('div');
+      box.className = 'jxnbx';
+      row.parentNode.insertBefore(box, row.nextSibling);
+      btn.classList.add('on');
+      if (!IDX){ box.innerHTML = '<div class="jxnote jxerr">索引未加载，无法展开真近邻</div>'; return; }
+      const K = IDX.k, n = IDX.n;
+      let h = '';
+      for (let t=0;t<K;t++){
+        const off = i*K + t;
+        if (off >= IDX.knn.length) break;
+        const j = IDX.knn[off];
+        if (j >= n || j === i) continue;
+        const to = IDX.idbin[j] & (NB2-1);
+        const arc = anchorArc(anc, to);
+        // distance stated in full, because "near in the vectors" is NOT "near on the sphere"
+        const dist = (to === anc) ? '同一锚点'
+                   : ('跨 ' + arc.toFixed(2) + ' 球面 · ' + Math.round(arc*180) + '°');
+        h += '<button type="button" class="jxnb" data-c="' + to + '">'
+           +   '<span>锚点 ' + anc + ' → ' + to + '（' + esc(dist) + '）</span>'
+           +   '<em>' + esc(IDX.ids[j]) + '</em>'
+           + '</button>';
+      }
+      box.innerHTML = h || '<div class="jxnote">该记忆没有可用的近邻</div>';
+    }
+
+    // ===== wiring =====
+    if (closeBtn) closeBtn.addEventListener('click', function(){ panel.classList.remove('on'); curReg = null; curAnchor = -1; });
+    if (warnEl) warnEl.textContent = WARN;
+    if (noteEl) noteEl.textContent = '跨 X 球面 = 两锚点夹角 ÷ 180°（0 同锚点，1 正对）。类型带 * 为该记忆所在锚点的主类型。';
+
+    qin.addEventListener('focus', function(){ loadIdx().catch(function(){}); });  // first open = fetch
+    qin.addEventListener('keydown', function(e){
+      e.stopPropagation();                  // keep Space / arrows out of the timeline handler
+      if (e.key === 'Enter'){ e.preventDefault(); doSearch(); }
+      else if (e.key === 'Escape'){ e.preventDefault(); onEsc(); }
+    });
+    qin.addEventListener('search', function(){ if (!(qin.value || '').trim()) resetView(); });
+
+    function onEsc(){
+      if (panel.classList.contains('on')){ panel.classList.remove('on'); curReg = null; curAnchor = -1; return; }
+      if ((qin.value || '').trim() || mkCell >= 0) resetView();
+    }
+    window.addEventListener('keydown', function(e){
+      if (e.key === 'Escape' && e.target !== qin) onEsc();
+    });
+
+    listEl.addEventListener('click', function(e){
+      const t = e.target;
+      if (!t || !t.classList) return;
+      if (t.classList.contains('jxnn')){
+        e.stopPropagation();
+        expandNeighbours(t, +t.getAttribute('data-i'), +t.getAttribute('data-c'));
+        return;
+      }
+      let nb = t, guard = 0;
+      while (nb && nb !== listEl && !(nb.classList && nb.classList.contains('jxnb')) && guard++ < 8) nb = nb.parentNode;
+      if (nb && nb !== listEl){
+        const to = +nb.getAttribute('data-c');
+        if (isFinite(to)){ showMarker(to); flyToAnchor(to); }      // jump to the true neighbour
+      }
+    });
+
+    // click (not drag) on the sphere -> which region holds the hit cell
+    let pdX = 0, pdY = 0, pdT = 0, pdOn = false;
+    cv.addEventListener('pointerdown', function(e){ pdOn = true; pdX = e.clientX; pdY = e.clientY; pdT = performance.now(); });
+    cv.addEventListener('pointerup', function(e){
+      if (!pdOn) return;
+      pdOn = false;
+      const dx = e.clientX - pdX, dy = e.clientY - pdY;
+      if (dx*dx + dy*dy > 36) return;                 // that was a rotation drag
+      if (performance.now() - pdT > 900) return;      // that was a long press
+      onGlobeClick(e);
+    });
+    function onGlobeClick(e){
+      if (!THREE.Raycaster) return;
+      const r = cv.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const nx = ((e.clientX - r.left)/r.width)*2 - 1;
+      const ny = -(((e.clientY - r.top)/r.height)*2 - 1);
+      let hit = null;
+      try {
+        const rc = new THREE.Raycaster();
+        rc.setFromCamera(new THREE.Vector2(nx, ny), camera);
+        hit = rc.intersectObject(mesh, false);
+      } catch(err){ hit = null; }
+      if (!hit || !hit.length || !hit[0].face) return;
+      const f = hit[0].face;
+      const a = binOf[f.a], b = binOf[f.b], c = binOf[f.c];   // majority vertex of the triangle
+      const cell = (a === b || a === c) ? a : (b === c ? b : a);
+      // v1.1: every click is a live click. A labelled anchor opens its region exactly as
+      // before; an unlabelled one opens on its own identity and its own memories.
+      openAnchor(cell);
+    }
+
+    requestAnimationFrame(jxTick);
+    return { openRegion: openRegion, openAnchor: openAnchor, showMarker: showMarker,
+             flyToAnchor: flyToAnchor,
+             cellDir: cellDir, cellOfDir: cellOfDir, anchorArc: anchorArc,
+             decodeIdx: decodeIdx,
+             state: function(){ return { region: curReg, anchor: curAnchor,
+                                         idxReady: !!IDX, err: idxErr }; } };
+  })();
+  } catch(e){ JX = null; }
+}
+if (document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', jxInit, { once: true });  // tail markup not parsed yet
+} else {
+  jxInit();                                                             // markup already present
+}
+
 let last = performance.now();
 let acc = 0;
 function loop(){
@@ -377,6 +1125,7 @@ function loop(){
     }
   }
   applyCamera();
+  tickStars(now);
   renderer.render(scene, camera);
 }
 document.getElementById('boot').style.opacity = 0;
@@ -384,5 +1133,71 @@ setTimeout(()=>{ const b=document.getElementById('boot'); if(b) b.remove(); }, 6
 loop();
 })();
 </script>
+<!-- ===== [jx] INTERACTION LAYER (package B) — search box + drill-down panel =====
+     Deliberately appended as one self-contained block at the tail: it adds NEW classes
+     only and edits no existing selector, so the visual layer (C1..C4) and this block can
+     never overwrite each other. All of these are position:fixed, so DOM order is irrelevant. -->
+<style>
+  #jxsearch{position:fixed;left:50%;top:22px;transform:translateX(-50%);z-index:9;
+    display:flex;align-items:center;gap:9px;pointer-events:auto}
+  #jxq{width:296px;padding:8px 12px;border-radius:9px;font-family:inherit;font-size:12px;
+    color:#dfe8f5;background:rgba(12,18,29,.82);border:1px solid rgba(90,120,165,.28);
+    backdrop-filter:blur(10px);outline:none;letter-spacing:.02em}
+  #jxq::placeholder{color:#54657d}
+  #jxq:focus{border-color:rgba(140,195,255,.6);box-shadow:0 0 0 3px rgba(95,168,232,.13)}
+  #jxhit{font-size:11px;color:#8fc9ff;font-variant-numeric:tabular-nums;letter-spacing:.04em;
+    min-width:54px;white-space:nowrap;text-shadow:0 1px 3px #05070d}
+  #jxpanel{position:fixed;right:26px;top:124px;bottom:174px;width:352px;z-index:9;display:none;
+    flex-direction:column;border-radius:12px;overflow:hidden;background:rgba(10,15,25,.93);
+    border:1px solid rgba(90,120,165,.26);backdrop-filter:blur(12px);box-shadow:0 18px 50px rgba(0,0,0,.55)}
+  #jxpanel.on{display:flex}
+  #jxph{display:flex;align-items:flex-start;gap:8px;padding:12px 13px 9px;flex:0 0 auto;
+    border-bottom:1px solid rgba(90,120,165,.18)}
+  #jxpt{flex:1 1 auto;font-size:12px;line-height:1.65;color:#cfe0f4;letter-spacing:.01em}
+  #jxpt b{color:#eaf2ff;font-weight:600;font-size:12.5px}
+  #jxpc{flex:0 0 auto;width:22px;height:22px;border-radius:6px;cursor:pointer;font-size:11px;
+    line-height:1;font-family:inherit;background:transparent;color:#8fa4c8;
+    border:1px solid rgba(110,150,200,.3)}
+  #jxpc:hover{background:rgba(60,95,140,.45);color:#dfe8f5}
+  #jxwarn{padding:8px 13px;font-size:10.5px;line-height:1.6;color:#e0b070;flex:0 0 auto;
+    background:rgba(120,80,20,.13);border-bottom:1px solid rgba(120,90,40,.2)}
+  #jxs{padding:7px 13px;font-size:10.5px;line-height:1.7;color:#7f93ad;flex:0 0 auto;
+    border-bottom:1px solid rgba(90,120,165,.12);font-variant-numeric:tabular-nums}
+  #jxlist{overflow-y:auto;overflow-x:hidden;flex:1 1 auto;padding:4px 0 8px}
+  .jxrow{display:grid;grid-template-columns:1fr 58px 44px 34px 50px;gap:6px;align-items:center;
+    padding:5px 13px;font-size:11px;font-variant-numeric:tabular-nums}
+  .jxrow:hover{background:rgba(80,120,170,.10)}
+  .jxid{color:#bfd4ee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .jxtype{color:#6d7d96;text-align:right}
+  .jxanc{color:#7fd3a8;text-align:right}
+  .jxrk{color:#5f7089;text-align:right}
+  .jxnn{font-family:inherit;font-size:10px;padding:2px 6px;border-radius:5px;cursor:pointer;
+    background:rgba(40,70,110,.55);border:1px solid rgba(110,160,215,.3);color:#a9c8ea}
+  .jxnn:hover,.jxnn.on{background:rgba(70,115,170,.7);color:#eaf2ff}
+  .jxnbx{padding:1px 0 5px}
+  .jxnb{display:block;width:100%;text-align:left;font-family:inherit;font-size:10.5px;
+    padding:5px 13px 5px 26px;cursor:pointer;background:transparent;border:0;line-height:1.55;
+    border-left:2px solid rgba(120,170,225,.35);color:#a9c8ea}
+  .jxnb:hover{background:rgba(80,130,190,.16);color:#eaf2ff}
+  .jxnb em{font-style:normal;color:#8fc9ff;display:block;font-size:11px}
+  .jxnb span{color:#6d7d96;font-size:10px}
+  .jxnote{padding:8px 13px;font-size:10px;line-height:1.6;color:#5a6a82;
+    border-top:1px solid rgba(90,120,165,.12)}
+  .jxerr{color:#ff9a8b}
+</style>
+
+<div id="jxsearch">
+  <input id="jxq" type="search" autocomplete="off" spellcheck="false"
+         placeholder="搜索记忆 id　↵ 定位　esc 清除" aria-label="搜索记忆 id">
+  <span id="jxhit"></span>
+</div>
+
+<div id="jxpanel" role="dialog" aria-live="polite">
+  <div id="jxph"><div id="jxpt"></div><button id="jxpc" type="button" title="关闭 (esc)">✕</button></div>
+  <div id="jxwarn"></div>
+  <div id="jxs"></div>
+  <div id="jxlist"></div>
+  <div class="jxnote" id="jxn"></div>
+</div>
 </body>
 </html>

@@ -1,35 +1,50 @@
 """Measure how much semantic proximity the sphere actually preserves.
 
-The README claims the sphere does NOT preserve semantic neighbours, and quotes
-five numbers for it. Quoting numbers nobody can reproduce is how a README turns
+The README quotes five numbers for it, and 1.1.0 added three more (distance and
+the neighbour jump). Quoting numbers nobody can reproduce is how a README turns
 into folklore, so this script emits all of them from the repo's own data.
 
 It is self-contained: if out/pca50.npy exists (a pipeline run) it uses those
 coordinates, otherwise it recomputes the same PCA from data/input/embeddings.tsv.
 Both paths were verified to agree to cosine 1.0000 per point.
 
-DEFINITIONS matter here, because two different quantities look alike:
+DEFINITIONS matter here, because four different quantities look alike. Each has
+its own baseline; quoting one against another's baseline is how a measurement
+turns into a marketing number:
 
-  neighbour retention  | top10(original space) ∩ top10(sphere) | / 10, averaged
+  neighbour retention  | top-k(original space) ∩ top-k(sphere) | / k, averaged
                        over points. Its random baseline is the chance that two
-                       unrelated 10-sets overlap: 10/(N-1). At N=3,000 that is
-                       0.33%, so 1.40% is a 4.2x lift.
+                       unrelated k-sets overlap: k/(N-1). At k=10, N=3,000 that
+                       is 0.33%, so 1.40% is a 4.2x lift.
 
-  same-anchor fraction of a point's original top-10 neighbours sharing its own
-                       anchor. Its random baseline is 1/1024 = 0.10%, so 0.49%
-                       is a 4.9x lift.
+  same-anchor          share of a point's TRUE top-k neighbours (original space)
+                       that land in its own anchor. Its random baseline is
+                       1/1024 = 0.10% (an unrelated pair sharing an anchor), so
+                       0.58% at the index's k=5 is a 5.9x lift.
 
-Both point the same way; neither substitutes for the other. Do not quote one
-against the other's baseline.
+  angular distance     great-circle distance between a memory and each of its
+                       true top-k neighbours, on the sphere the globe draws.
+                       Reported in units where a half-circle = 1, as a median;
+                       the baseline is the median over seeded random pairs
+                       (0.501 -- 0.5 is what uniform points give by symmetry).
+
+  beyond half a globe  share of those distances greater than 0.5, i.e. the two
+                       points are more than a quarter-turn apart. Random pairs
+                       give 50.1%: half the sphere is always "the far side".
+
+All four point the same way; none substitutes for another. Read them together:
+the sphere DOES carry a weak proximity signal, and it is far too weak to
+retrieve with -- which is the claim the README makes.
 
 Usage
-    python scripts/measure_proximity.py [--k 10] [--quiet]
+    python scripts/measure_proximity.py [--k 10]
 
 Exit code 0 = measured, 2 = required input missing.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -37,6 +52,10 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 NB = 32
+# Fixed so the random baselines below are identical on every run; a baseline that
+# moves between runs makes a README row unquotable.
+RANDOM_SEED = 20261105
+RANDOM_PAIRS = 200_000
 
 
 def load_raw() -> np.ndarray:
@@ -88,6 +107,30 @@ def knn(A: np.ndarray, k: int) -> np.ndarray:
     return np.argsort(-S, axis=1)[:, :k]
 
 
+def arc(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Great-circle distance in units where a half-circle (antipodes) is 1.
+
+    The globe's own geometry, not a chart approximation: arccos of the dot
+    product of two unit vectors, divided by pi. Two random points on S2 are
+    beyond half a globe half the time, which is why 15.3% is the number worth
+    quoting and "usually on the other side" is not.
+    """
+    return np.arccos(np.clip((a * b).sum(1), -1.0, 1.0)) / np.pi
+
+
+def index_k(default: int = 5) -> int:
+    """k of the shipped lookup index, so these rows describe the real feature.
+
+    Falls back to 5 when out/web_data.extra.json has not been built yet, so the
+    script stays runnable on a fresh clone.
+    """
+    try:
+        payload = json.loads((ROOT / "out" / "web_data.extra.json").read_text(encoding="utf-8"))
+        return int(payload["k"])
+    except (OSError, ValueError, KeyError):
+        return default
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -115,37 +158,75 @@ def main(argv: list[str] | None = None) -> int:
     keep = float(np.mean([len(set(i) & set(j)) / k for i, j in zip(hi, lo)]))
     baseline = k / (N - 1)
 
-    same_anchor = float(np.mean([(b[hi[i]] == b[i]).sum() / k for i in range(N)]))
+    # The lookup index's own neighbours: same metric, at the k the page ships, so
+    # the README row and the shipped feature cannot drift apart.
+    kj = index_k()
+    true_nbr = knn(X, kj)
+    nbr_same = float((b[true_nbr] == b[:, None]).mean())
+    d_true = np.concatenate([arc(P, P[true_nbr[:, c]]) for c in range(kj)])
+
+    rng = np.random.default_rng(RANDOM_SEED)
+    ri, rj = rng.integers(0, N, RANDOM_PAIRS), rng.integers(0, N, RANDOM_PAIRS)
+    off = ri != rj
+    d_rand = arc(P[ri[off]], P[rj[off]])
 
     S = X @ X.T
     iu = np.triu_indices(N, 1)
     sim = S[iu]
     same = b[iu[0]] == b[iu[1]]
 
+    anchor_base = 1.0 / NB ** 2
+    d_true_med, d_rand_med = float(np.median(d_true)), float(np.median(d_rand))
+    far_true = float((d_true > 0.5).mean())
+    far_rand = float((d_rand > 0.5).mean())
+
+    NAME = 46
+
+    def row(label: str, value: str, reference: str = "-") -> None:
+        print(f"  {label.ljust(NAME)} {value:>8s} {reference:>9s}")
+
     print("semantic locality of the sphere")
     print(f"  dataset            : {N} points, {X.shape[1]} dims (data/input/embeddings.tsv)")
     print(f"  sphere coords      : {src}")
     print(f"  anchors occupied   : {len(np.unique(b))} / {NB * NB}")
+    print(f"  neighbour-jump k   : {kj} (out/web_data.extra.json when built)")
+    print(f"  random pairs       : {len(d_rand)} draws, seed {RANDOM_SEED}")
     print()
-    print(f"  {'metric':46s} {'value':>8s} {'baseline':>9s}")
-    print(f"  {'-' * 46} {'-' * 8:>8s} {'-' * 9:>9s}")
-    print(f"  {'top-3 variance share':46s} {share:7.1f}% {'-':>9s}")
-    print(f"  {'singular ratio s3/s1 (1.0 = isotropic)':46s} {ratio:8.3f} {'-':>9s}")
-    print(f"  {'sphere centroid offset':46s} {offset:8.3f} {'-':>9s}")
-    print(f"  {f'top-{k} neighbour retention, original -> sphere':46s} "
-          f"{keep * 100:7.2f}% {baseline * 100:8.2f}%")
-    print(f"  {f'mean cosine inside one anchor':46s} "
-          f"{sim[same].mean():8.4f} {sim[~same].mean():9.4f}")
+    print(f"  {'metric'.ljust(NAME)} {'value':>8s} {'reference':>9s}")
+    print(f"  {'-' * NAME} {'-' * 8:>8s} {'-' * 9:>9s}")
+    row("top-3 variance share", f"{share:.1f}%")
+    row("singular ratio s3/s1 (1.0 = isotropic)", f"{ratio:.3f}")
+    row("sphere centroid offset", f"{offset:.3f}")
+    row(f"top-{k} neighbour retention, original -> sphere",
+        f"{keep * 100:.2f}%", f"{baseline * 100:.2f}%")
+    row(f"top-{kj} true nbrs in the memory own anchor",
+        f"{nbr_same * 100:.2f}%", f"{anchor_base * 100:.2f}%")
+    row("great-circle dist to true nbr (median)",
+        f"{d_true_med:.3f}", f"{d_rand_med:.3f}")
+    row("share of those nbrs beyond half a globe",
+        f"{far_true * 100:.1f}%", f"{far_rand * 100:.1f}%")
+    row("mean cosine inside one anchor",
+        f"{sim[same].mean():.4f}", f"{sim[~same].mean():.4f}")
+    print()
+    print("  half-circle = 1 (an antipode is 1.000). Uniform random points give a")
+    print(f"  median of 0.5 and exactly half beyond it; this set measures {far_rand * 100:.1f}%.")
     print()
     print(f"  retention baseline = k/(N-1) = {k}/{N - 1} = {baseline * 100:.2f}%"
           f"  ->  lift {keep / baseline:.1f}x")
-    print(f"  same-anchor count  = {same_anchor * 100:.2f}%"
-          f"   random baseline 1/1024 = {100 / NB ** 2:.2f}%  ->  lift "
-          f"{same_anchor / (1.0 / NB ** 2):.1f}x")
+    print(f"  same-anchor        = {nbr_same * 100:.2f}% vs 1/1024 = {anchor_base * 100:.2f}%"
+          f"  ->  lift {nbr_same / anchor_base:.1f}x")
+    print(f"  distance           = {d_true_med:.3f} vs random {d_rand_med:.3f}"
+          f"  ->  {d_rand_med / d_true_med:.1f}x closer")
+    print(f"  change anchor      = {(1 - nbr_same) * 100:.1f}% (1 - same-anchor)"
+          f"  but only {far_true * 100:.1f}% cross the globe")
     print()
-    print("  Both metrics say the same thing: the sphere keeps a few percent of the")
-    print("  original neighbourhoods, far too little to retrieve with. They are")
-    print("  different quantities with different baselines -- quote them separately.")
+    print("  All three lifts point the same way and all three are small: the sphere")
+    print("  carries a weak but REAL proximity signal (1.8x-5.9x above chance) and is")
+    print("  still far too imprecise to retrieve with. They are different quantities")
+    print("  with different baselines -- quote them separately.")
+    print("  What is NOT true: that neighbours usually sit on the far side. Only")
+    print(f"  {far_true * 100:.1f}% of them are beyond half a globe, against "
+          f"{far_rand * 100:.1f}% for random pairs.")
     return 0
 
 

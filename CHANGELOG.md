@@ -8,6 +8,56 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-11-05
+
+### Added
+
+- **Search and locate one memory.** `sphere/pipeline/build_index.py` exports `idbin`
+  — every memory's anchor — so the deck can answer "where is this one", which
+  1.0.1's boundary table listed as something the globe could not do.
+- **True-neighbour jump.** The same index ships `knn`: each memory's top-5
+  neighbours in the **original** vector space, not on the sphere. A memory's
+  anchor is not its neighbourhood, and this jump is what shows the difference.
+- **Named ridges and trenches.** 39 regions on the demo (21 ridges, 18 trenches),
+  all 39 labelled from their own word statistics; 6/6 of the demo's known themes
+  recovered, mean lift 3.50x over a size-matched random draw.
+- **Render additions:** a three-tier starfield (14 bright / 210 mid / the rest
+  faint), an ocean `THREE.ShaderMaterial` at a data-relative waterline, a crest
+  glow shell, and a snow-line palette band above the eight original colour stops.
+- `scripts/check_search.py` and `scripts/check_render.py` — one gate for the
+  lookup index, one for the built deck, both exit 0/1/2 and both runnable from
+  any working directory.
+
+### Changed
+
+- **The README no longer says a sphere position carries no semantic proximity.**
+  1.0.1 wrote "does not carry semantic proximity", which was too absolute.
+  Measured on the demo: top-10 neighbour retention is 1.40% against 0.33% at
+  random (4.2x), true top-5 neighbours share the memory's own anchor 0.58% of the
+  time against 0.10% (5.9x), and true neighbours sit a median 0.272 of a
+  half-circle away against 0.501 (1.8x closer). The sphere carries a weak but
+  real signal.
+- **"Neighbours are usually on the other side of the globe" is NOT supported.**
+  Only 15.3% of true neighbours are beyond half a globe, against 50.2% for random
+  pairs. `scripts/measure_proximity.py` now computes and prints both rows, so the
+  claim and the measurement cannot separate again.
+- One line that puts the two together: true neighbours **almost always change
+  anchor (99.4%)** and yet usually do **not** cross the globe (median 0.272, only
+  15.3% beyond half a globe).
+- Both READMEs' boundary table moved one row: the globe **can** say where one
+  specific memory sits (the lookup index), and still cannot rank results by
+  sphere adjacency.
+
+### Design
+
+- **A region label is always printed with its own statistic**, never bare:
+  `auth · 57.3% 的记忆含该词（随机 16.5%）`. A bare label would read as "this hill
+  is the auth topic", which is precisely what the README's boundary section says
+  the globe cannot tell you. Label and number travel together.
+- **The longitude wrap is part of the spec, not an edge case**: column 31 touches
+  column 0. A ridge across the antimeridian is one region; `check_regions.py`
+  fails the build when the flood fill splits it into two.
+
 ## [1.0.1] — 2026-11-05
 
 ### Fixed
