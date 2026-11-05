@@ -10,6 +10,8 @@
 
 *(36 frames, 3.6 s per turn, rendered offline from the same pipeline — no screen recorder, no private data)*
 
+**[▶ Live demo — drag the globe](https://masterltx.github.io/memory-sphere/)** (3,000 synthetic memories, no private data)
+
 ## What it actually does
 
 Most vector visualisations give you a dot cloud: 10k points, no structure you can point at.
