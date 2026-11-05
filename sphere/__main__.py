@@ -13,6 +13,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from . import __version__
+
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "sphere" / "pipeline"
 VENDOR = ROOT / "vendor"
@@ -129,6 +131,8 @@ def cmd_vendor(a) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m sphere", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version",
+                    version=f"memory-sphere {__version__} (tag v{__version__})")
     sub = ap.add_subparsers(dest="cmd")
 
     d = sub.add_parser("demo", help="synthesise fake data and build the globe")

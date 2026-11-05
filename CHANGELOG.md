@@ -39,6 +39,10 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   link targets, numeric literals, table geometry and length ratio, and exits 1
   when any of them disagree.
 - `CHANGELOG.md` (this file).
+- `python -m sphere --version`, backed by a single `__version__` in
+  `sphere/__init__.py`. `scripts/check_version_sync.py` fails a release when the
+  code version, the newest CHANGELOG entry (both languages) and the git tag at
+  HEAD disagree.
 
 ### Measured
 

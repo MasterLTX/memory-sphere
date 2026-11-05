@@ -35,6 +35,9 @@
   比对标题结构、代码块、链接目标、数字字面量、表格形状和篇幅比例，
   任何一项对不上就退出码 1。
 - `CHANGELOG.md`（本文件）。
+- `python -m sphere --version`，背后是 `sphere/__init__.py` 里唯一的 `__version__`。
+  `scripts/check_version_sync.py` 会在代码版本、CHANGELOG 最新条目（两种语言）
+  以及 HEAD 上的 git tag 三者不一致时让发布失败。
 
 ### 实测
 

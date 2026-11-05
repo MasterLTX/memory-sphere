@@ -45,6 +45,7 @@ cd memory-sphere
 python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
+python -m sphere --version   # -> memory-sphere 1.0.1 (tag v1.0.1)
 python -m sphere demo        # synthesises 3,000 fake memories, builds the globe
 open out/memory_sphere_deck.html
 ```
@@ -74,7 +75,7 @@ sphere/pipeline/   the original flat scripts (being folded into a package)
 adapters/          exporters that produce the four input files
 docs/              formulas, architecture, pitfalls
 examples/          committed demo output
-scripts/           regression checks (hero spin direction, pixel-based)
+scripts/           release gates: hero spin direction, bilingual drift, version sync
 ```
 
 ## Pitfalls already paid for
