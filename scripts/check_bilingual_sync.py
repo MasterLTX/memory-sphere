@@ -9,7 +9,15 @@ not diverge is caught:
   code blocks    same count, same language tag, same non-comment lines
   inline code    same identifier set (paths, commands, symbols, formulas)
   link targets   same set, ignoring the language-switcher links themselves
-  numbers        same multiset of numeric literals (1,024 / 0.928 / 72 ...)
+  numbers        same multiset of numeric literals (1,024 / 0.928 / 72 ...).
+                 Inside TABLES the order must match too, because the grid fixes
+                 it. In prose only the multiset is compared: Chinese legitimately
+                 reorders clauses ("1,020 of 1,024 bins" vs "1,024 个箱里有 1,020
+                 个"), so a semantic number-to-noun binding is out of reach for a
+                 regex -- read prose numbers yourself. In tables each COLUMN is
+                 compared in order and each cell is sorted, so swapping two
+                 columns is caught while clause order inside a cell is not
+                 punished.
   tables         same row and column counts, in order
   length         character-count ratio inside a sane band, catching an edition
                  that was emptied out or half-translated
@@ -56,7 +64,7 @@ def squeeze(s: str) -> str:
 
 
 def parse(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")
     out: dict = {"path": path, "chars": len(squeeze(text))}
 
     out["headings"] = [len(m.group(1)) for m in re.finditer(r"^(#{1,6})\s+\S", text, re.M)]
@@ -74,8 +82,8 @@ def parse(path: Path) -> dict:
     out["inline"] = sorted(set(m.group(1).strip() for m in re.finditer(r"`([^`\n]+)`", text)))
 
     targets = set()
-    for m in re.finditer(r"\[[^\]]*\]\(([^)\s]+)\)", text):
-        t = m.group(1)
+    for m in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text):
+        t = m.group(1).strip()
         if t in SWITCHER_TARGETS:
             continue
         targets.add(t)
@@ -83,8 +91,10 @@ def parse(path: Path) -> dict:
 
     # numeric literals, keeping separators so 1,024 != 1024 stays visible
     out["numbers"] = sorted(re.findall(r"\d+(?:[.,]\d+)*", text))
+    NUM = re.compile(r"\d+(?:[.,]\d+)*")
 
     tables = []
+    table_nums = []
     lines = text.splitlines()
     i = 0
     while i < len(lines):
@@ -92,14 +102,26 @@ def parse(path: Path) -> dict:
             cols = len([c for c in lines[i].strip().strip("|").split("|")])
             rows = 0
             j = i + 2
+            def cells_of(line: str) -> list[str]:
+                return [c for c in line.strip().strip("|").split("|")]
+
+            grid = [cells_of(lines[i])]
             while j < len(lines) and lines[j].lstrip().startswith("|"):
                 rows += 1
+                grid.append(cells_of(lines[j]))
                 j += 1
+            # Column order is meaningful and is compared; word order inside a cell
+            # is not, because Chinese reorders clauses legitimately.
+            colnums = [[sorted(NUM.findall(r[c])) if c < len(r) else [] for r in grid]
+                       for c in range(cols)]
+            rownums = colnums
             tables.append((rows, cols))
+            table_nums.append(rownums)
             i = j
             continue
         i += 1
     out["tables"] = tables
+    out["table_numbers"] = table_nums
     return out
 
 
@@ -132,6 +154,13 @@ def compare(en: dict, zh: dict) -> list[str]:
         only_zh = [x for x in zh["links"] if x not in en["links"]]
         problems.append(f"link targets differ; only-en={only_en} only-zh={only_zh}")
 
+    if en["table_numbers"] != zh["table_numbers"]:
+        for i, (te, tz) in enumerate(zip(en["table_numbers"], zh["table_numbers"])):
+            if te != tz:
+                problems.append(f"table {i + 1}: per-column numbers differ:"
+                                f" en {te} vs zh {tz}")
+                break
+
     if en["numbers"] != zh["numbers"]:
         ce, cz = Counter(en["numbers"]), Counter(zh["numbers"])
         only_en = sorted((ce - cz).elements())
@@ -150,11 +179,12 @@ def compare(en: dict, zh: dict) -> list[str]:
     return problems
 
 
-def check_pair(en_path: Path, zh_path: Path) -> bool:
+def check_pair(en_path: Path, zh_path: Path) -> bool | None:
+    """True = in sync, False = drifted, None = a file could not be read."""
     missing = [p for p in (en_path, zh_path) if not p.exists()]
     if missing:
         print(f"MISSING: {', '.join(str(m) for m in missing)}", file=sys.stderr)
-        return False
+        return None
     en, zh = parse(en_path), parse(zh_path)
     problems = compare(en, zh)
     print(f"{en_path}  <->  {zh_path}")
@@ -181,11 +211,14 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     pairs = [tuple(a.pair)] if a.pair else DEFAULT_PAIRS
-    ok = True
+    results = []
     for en_rel, zh_rel in pairs:
-        ok &= check_pair(a.root / en_rel, a.root / zh_rel)
+        results.append(check_pair(a.root / en_rel, a.root / zh_rel))
         print()
-    if ok:
+    if any(r is None for r in results):
+        print("FAIL  a file could not be read (see MISSING above)")
+        return 2
+    if all(results):
         print("PASS  every bilingual pair is in sync")
         return 0
     print("FAIL  the editions have drifted; fix before tagging a release")

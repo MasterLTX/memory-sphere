@@ -96,7 +96,7 @@ git push origin v1.0.0
 
 ---
 
-## 6. 发布前最后三道自检
+## 6. 发布前自检：三道人工 + 三道自动
 
 ```bash
 # ① 有没有敏感东西混进来（应该没有任何输出）
@@ -108,6 +108,11 @@ git ls-files | xargs -I{} du -h {} 2>/dev/null | sort -rh | head -5
 # ③ 干净环境能不能跑（最重要）
 python -m venv /tmp/clean && /tmp/clean/bin/pip install -r requirements.txt
 /tmp/clean/bin/python -m sphere demo
+
+# ④ 三道自动门禁：任何一道不过就别发
+python scripts/check_version_sync.py --no-tag   # 打 tag 前跑；打完 tag 去掉 --no-tag 复核
+python scripts/check_bilingual_sync.py          # 中英两版有没有漂移
+python scripts/check_hero_spin.py               # 首屏 GIF 到底在怎么转
 ```
 
 ---
@@ -136,10 +141,10 @@ python -m venv /tmp/clean && /tmp/clean/bin/pip install -r requirements.txt
 ## 附：本仓库当前状态速查
 
 ```bash
-git log --oneline          # commit history
-git ls-files | wc -l       # how many files are tracked
-git remote -v              # the remote (this repo already has one configured)
+git log --oneline          # 提交历史
+git ls-files | wc -l       # 跟踪了多少文件
+git remote -v              # 远程地址（本仓库已经配置好了）
 ```
 
-This repository has already shipped v1.0.0 and v1.0.1, so `origin` exists; the commands above
-are for checking your own fork or a re-initialised copy.
+本仓库已经发布过 v1.0.0 和 v1.0.1，所以 `origin` 是存在的；上面这几条命令
+是给你检查自己的 fork、或者重新初始化出来的副本用的。

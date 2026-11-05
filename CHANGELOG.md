@@ -71,7 +71,7 @@ Residual fit over consecutive frame pairs of `examples/rotating.gif`
 
 | build | translation / rotation | fitted motion | vertical drift |
 |---|---|---|---|
-| 1.0.0 | 1.463 | +9.09 deg/frame about the centre (36 frames = one turn) | 0.750 |
+| 1.0.0 | 1.463 | +9.09 deg/frame about the centre (the intended rate is 10 deg/frame, one turn in 36 frames) | 0.750 |
 | 1.0.1 | 0.456 | dx +22.1 px/frame, dy −0.3 px | 0.012 |
 
 Run `python scripts/check_hero_spin.py examples/rotating.gif` to reproduce.

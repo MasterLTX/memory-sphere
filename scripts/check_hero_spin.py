@@ -120,12 +120,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  model A  in-plane rotation   {rot_res:8.3f}   {rot_deg:+7.2f} deg/frame")
     print(f"  model B  horizontal slide    {sft_res:8.3f}   dx {dx:+7.1f} px  dy {dy:+6.1f} px")
     print()
-    print(f"  translation / rotation ratio {sft_res / rot_res:8.3f}"
+    # a hero whose motion lives outside the mask leaves rot_res at exactly 0;
+    # that is a broken fixture, not a passing gate
+    ratio = sft_res / rot_res if rot_res > 1e-9 else float("inf")
+    print(f"  translation / rotation ratio {ratio:8.3f}"
           f"   (planet spin needs < {MIN_TRANSLATION_ADVANTAGE})")
     print(f"  vertical fraction |dy|/|dx|  {vert_frac:8.3f}"
           f"   (planet spin needs < {MAX_VERTICAL_FRACTION})")
 
-    ok = (sft_res / rot_res < MIN_TRANSLATION_ADVANTAGE) and (vert_frac < MAX_VERTICAL_FRACTION)
+    ok = (ratio < MIN_TRANSLATION_ADVANTAGE) and (vert_frac < MAX_VERTICAL_FRACTION)
     print()
     if ok:
         print("PASS  the globe turns about the vertical axis (planet spin)")

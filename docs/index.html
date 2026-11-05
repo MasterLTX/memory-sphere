@@ -87,7 +87,7 @@
   <div id="tmid">
     <div id="tinfo"><span id="tdate">—</span><span id="tcum">—</span></div>
     <input type="range" id="tslider" min="0" max="24" step="0.02" value="24">
-    <div id="taxis"><span>2026-09-20</span><span>2026-11-04</span></div>
+    <div id="taxis"><span>—</span><span>—</span></div>
   </div>
 </div>
 
@@ -279,6 +279,12 @@ function updateHud(){
   document.getElementById('speak').textContent = peak.toFixed(3);
   document.getElementById('tdate').textContent = dstr;
   document.getElementById('tcum').textContent = cum.toLocaleString() + ' 条';
+  const ax = document.getElementById('taxis');
+  if (ax && !ax.dataset.init) {          // the axis is the data's own range, not a constant
+    ax.firstElementChild.textContent = META[0].date;
+    ax.lastElementChild.textContent = META[META.length-1].date;
+    ax.dataset.init = '1';
+  }
   const sl = document.getElementById('tslider');
   if (Math.abs(parseFloat(sl.value) - t) > 1e-3) sl.value = t;
 }

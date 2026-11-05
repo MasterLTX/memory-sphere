@@ -33,11 +33,18 @@ This one **aggregates first, then draws**:
 | 8. displace | `R = 1 + α(h − 0.5)`, α = 0.28 |
 | 9. render | icosphere (no polar singularity), normals from the **displaced** geometry |
 
-Why PCA instead of UMAP: measured on real data, the top-3 components hold only 10% of the
-variance **but the residual is isotropic** — singular values 61.3 / 58.7 / 56.9 (ratio 0.928),
-sphere centroid offset 0.058, and 1,020 of 1,024 bins get populated. Uniformly spread
-information carries no structure, so UMAP/k-means would only add distortion. See
-[`sphere/pipeline/build_sphere.py`](sphere/pipeline/build_sphere.py) for the exact arithmetic.
+Why PCA instead of UMAP: because this project draws terrain, not neighbourhoods.
+
+The top-3 singular values sit close together (61.3 / 58.7 / 56.9, ratio 0.928), so the projection
+has no single dominant direction. Points land roughly evenly on the sphere — 1,020 of 1,024 bins
+populated, centroid offset 0.058 — and the surface reads as a continuous landscape rather than a
+handful of clumps. PCA is also deterministic: the same input always produces the same globe, which
+UMAP and t-SNE do not promise.
+
+The price is locality, and the next section measures it. If what you want is neighbourhoods
+preserved, that is a different projection with a different look, and it is not this project.
+
+See [`sphere/pipeline/build_sphere.py`](sphere/pipeline/build_sphere.py) for the exact arithmetic.
 
 Those real-data numbers come from the author's own 10,441-memory store, which is not part of
 this repository. What you can reproduce here is the next section's set, computed on the demo data.
@@ -55,13 +62,16 @@ Measured on the 3,000-by-64 synthetic set, recomputed through this project's own
 |---|---|---|
 | variance carried by the top 3 PCs | 7.7% | ≈10% on real data |
 | singular-value ratio (closer to 1 = more isotropic) | 0.906 | 0.928 on real data |
-| sphere centroid offset | 0.007 | 0.058 on real data |
-| top-10 neighbour retention, original 64-D → sphere | **1.40%** | random baseline 0.36% |
+| sphere centroid offset | 0.006 | 0.058 on real data |
+| top-10 neighbour retention, original 64-D → sphere | **1.40%** | random baseline 0.33% |
 | mean cosine similarity inside one anchor | 0.0680 | −0.0004 across anchors |
 
-1.40% against a 0.36% random baseline is only 3.9× better: **the direction is right, the
-signal is far too weak to retrieve with.** Ask for "something like this one" and the original
-vector space answers with a cosine near 0.9; sphere adjacency answers with a 1.40% hit rate.
+1.40% against a 0.33% random baseline — the chance that two unrelated 10-sets overlap — is a
+4.2× lift: **the direction is right, the signal is far too weak to retrieve with.** Ask for
+"something like this one" and the original vector space answers with a cosine near 0.9; sphere
+adjacency answers with a 1.40% hit rate.
+
+Reproduce every row with `python scripts/measure_proximity.py`.
 
 So the boundary is clean:
 
@@ -87,14 +97,14 @@ pip install -r requirements.txt
 
 python -m sphere --version   # -> memory-sphere 1.0.1 (tag v1.0.1)
 python -m sphere demo        # synthesises 3,000 fake memories, builds the globe
-open out/memory_sphere_deck.html
+open out/sphere_timeline.html
 ```
 
 No database, no API key, no network (except the first run, which fetches `three.js` + `KaTeX`
 into `vendor/`).
 
-The demo runs 3,000 by 64 for speed; the variance and neighbour numbers above come from the
-real 10,441 by 1,024 data.
+The demo runs 3,000 by 64 for speed. In the table above, the *result* column is measured on
+that synthetic set; the *reference* column comes from the real 10,441 by 1,024 data.
 
 ## Use your own memory
 

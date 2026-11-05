@@ -47,13 +47,22 @@ def read_changelog_version(path: Path) -> str | None:
     return m.group(1) if m else None
 
 
-def tags_at_head() -> list[str]:
+def tags_at_head(root: Path) -> tuple[list[str], str | None]:
+    """Tags pointing at HEAD *of the repo at root*.
+
+    Returns (tags, problem). problem is None when git answered; otherwise it says
+    why it could not, so 'no tag yet' and 'cannot query git' stay distinguishable
+    -- silently passing the tag half of a release gate is how a wrong tag ships.
+    """
     try:
         out = subprocess.run(["git", "tag", "--points-at", "HEAD"],
-                             capture_output=True, text=True, encoding="utf-8")
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return [t.strip() for t in out.stdout.splitlines() if t.strip()]
+                             cwd=str(root), capture_output=True, text=True,
+                             encoding="utf-8")
+    except (OSError, subprocess.SubprocessError) as e:
+        return [], f"cannot run git: {e}"
+    if out.returncode != 0:
+        return [], f"git failed here (not a repository?): {out.stderr.strip()[:120]}"
+    return [x.strip() for x in out.stdout.splitlines() if x.strip()], None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,7 +90,10 @@ def main(argv: list[str] | None = None) -> int:
 
     expected_tag = f"v{py}"
     if not a.no_tag:
-        tags = tags_at_head()
+        tags, problem = tags_at_head(a.root)
+        if problem:
+            print(f"\nFAIL  cannot verify the tag: {problem}", file=sys.stderr)
+            return 2
         vtags = [t for t in tags if re.fullmatch(r"v\d+\.\d+\.\d+", t)]
         if vtags:
             print(f"v* tag(s) pointing at HEAD     : {', '.join(sorted(vtags))}")
