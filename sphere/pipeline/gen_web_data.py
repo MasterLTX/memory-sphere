@@ -26,6 +26,14 @@ data = {
     "types": [enc(tf[0]), enc(tf[1]), enc(tf[2])],
     "layers": layers,
 }
+
+# Named ridges and trenches, built by build_regions.py. Optional: without it the
+# page still renders, it just has nothing to call the mountains.
+reg_p = OUT / "regions.json"
+if reg_p.exists():
+    data["regions"] = json.loads(reg_p.read_text(encoding="utf-8"))
+else:
+    print("  (no regions.json yet -- run sphere/pipeline/build_regions.py to name the hills)")
 p = OUT / "web_data.json"
 p.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
 print("web_data.json", p.stat().st_size, "bytes")
