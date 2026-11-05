@@ -36,7 +36,7 @@ information carries no structure, so UMAP/k-means would only add distortion. See
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/memory-sphere
+git clone https://github.com/MasterLTX/memory-sphere
 cd memory-sphere
 python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -60,7 +60,7 @@ Drop four files into `data/input/` — only the first is required:
 | `models.tsv` | `name <tab> [v1,v2,…,vn]` |
 
 With only `embeddings.tsv` the pipeline degrades to a pure-density globe instead of failing.
-If you use [Hindsight](https://github.com/) as your memory store, `adapters/hindsight_export.sql`
+If you use Hindsight as your memory store, `adapters/hindsight_export.sql`
 dumps those files (read-only, no writes).
 
 ## Layout
