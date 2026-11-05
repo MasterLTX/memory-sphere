@@ -1,0 +1,19 @@
+# --- never commit real data ---
+data/raw/
+data/input/*.tsv
+data/input/*.csv
+*.npy
+*.npz
+out/
+*.sql
+!adapters/*.sql
+
+# --- build-time fetched libs ---
+vendor/*.js
+vendor/*.css
+
+# --- scratch ---
+_*.png
+__pycache__/
+*.pyc
+.venv/

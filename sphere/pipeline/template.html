@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>记忆球体 · 1024 锚点</title>
+<style>
+  html,body{margin:0;height:100%;background:#05070d;overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    color:#dfe8f5;-webkit-font-smoothing:antialiased}
+  #c{display:block;width:100%;height:100%;cursor:grab}
+  #c.drag{cursor:grabbing}
+  .hud{position:fixed;pointer-events:none;z-index:5}
+  #title{left:28px;top:24px}
+  #title h1{margin:0;font-size:14px;font-weight:600;letter-spacing:.14em;color:#eaf2ff}
+  #title p{margin:7px 0 0;font-size:11px;line-height:1.75;color:#6d7d96;letter-spacing:.02em}
+  #title b{color:#9fb4d0;font-weight:500}
+
+  #layers{right:24px;top:24px;pointer-events:auto;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+  .lbl{font-size:10px;letter-spacing:.16em;color:#5a6a82;margin-bottom:3px;text-transform:uppercase}
+  .btn{pointer-events:auto;background:rgba(18,26,40,.72);border:1px solid rgba(90,120,165,.28);
+    color:#93a7c2;font-size:11.5px;letter-spacing:.04em;padding:6px 13px;border-radius:7px;cursor:pointer;
+    transition:all .16s ease;backdrop-filter:blur(8px);font-family:inherit}
+  .btn:hover{color:#d9e6f7;border-color:rgba(120,165,225,.5);background:rgba(26,38,58,.85)}
+  .btn.on{color:#0a1018;background:linear-gradient(135deg,#8fc9ff,#5fa8e8);border-color:transparent;font-weight:600}
+
+  #sliderwrap{right:24px;top:auto;bottom:96px;pointer-events:auto;display:flex;flex-direction:column;
+    align-items:flex-end;gap:6px}
+  #sliderwrap .lbl{margin:0}
+  input[type=range]{-webkit-appearance:none;width:148px;height:3px;border-radius:2px;
+    background:linear-gradient(90deg,#5fa8e8,#2a3a52);outline:none;pointer-events:auto}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:#bfe0ff;border:2px solid #0a1018;cursor:pointer;box-shadow:0 0 8px rgba(120,190,255,.7)}
+  #alphaVal{font-size:11px;color:#8fc9ff;font-variant-numeric:tabular-nums}
+
+  #legend{left:28px;bottom:24px}
+  #legend .bar{width:132px;height:9px;border-radius:5px;
+    background:linear-gradient(90deg,#040816,#081c45,#0a3b6a,#0f656e,#2e8f5c,#82a84a,#dbb752,#fff0c2)}
+  #legend .row{display:flex;justify-content:space-between;font-size:10px;color:#5f7089;margin-top:5px;width:132px}
+  #legend .types{display:flex;gap:13px;margin-top:11px;font-size:10.5px;color:#7d8ea6}
+  #legend .types i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:1px}
+
+  #tip{right:24px;bottom:24px;text-align:right;min-width:186px}
+  #tip .k{font-size:10px;letter-spacing:.14em;color:#5a6a82;text-transform:uppercase}
+  #tip .v{font-size:12.5px;color:#cfe2f8;margin-top:5px;line-height:1.85;font-variant-numeric:tabular-nums}
+  #tip .v span{color:#7f93ad}
+  #tip .d{color:#8fc9ff;font-weight:600}
+
+  #hint{left:50%;bottom:22px;transform:translateX(-50%);font-size:10.5px;color:#44546b;letter-spacing:.1em}
+  #boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#05070d;color:#5f7089;font-size:12px;letter-spacing:.2em;z-index:20;transition:opacity .5s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hud" id="title">
+  <h1>记忆球体 · 1024 锚点</h1>
+  <p><b>10,441</b> 条记忆 · <b>234,349</b> 条关系<br>
+     32×32 等面积经纬网格 · 高度 = 混合信号</p>
+</div>
+
+<div class="hud" id="layers">
+  <div class="lbl">着色</div>
+  <button class="btn" id="typebtn" data-mode="type">类型配色</button>
+  <div class="lbl" style="margin-top:9px">高度字段</div>
+  <button class="btn on" data-layer="mix">混合信号</button>
+  <button class="btn" data-layer="density">密度</button>
+  <button class="btn" data-layer="pagerank">PageRank</button>
+  <button class="btn" data-layer="entities">实体数</button>
+  <button class="btn" data-layer="recency">时间新近</button>
+  <button class="btn" data-layer="typew">类型权重</button>
+</div>
+
+<div class="hud" id="sliderwrap">
+  <div class="lbl">位移幅度 α <span id="alphaVal">0.28</span></div>
+  <input type="range" id="alpha" min="0.04" max="0.46" step="0.01" value="0.28">
+</div>
+
+<div class="hud" id="legend">
+  <div class="bar"></div>
+  <div class="row"><span>海沟 0</span><span>峰顶 1</span></div>
+  <div class="types">
+    <span><i style="background:#4a8cff"></i>world</span>
+    <span><i style="background:#5cf29a"></i>experience</span>
+    <span><i style="background:#ff6b5c"></i>observation</span>
+  </div>
+</div>
+
+<div class="hud" id="tip">
+  <div class="k">当前锚点</div>
+  <div class="v" id="tipv"><span>悬停球面读数</span></div>
+</div>
+
+<div class="hud" id="hint">拖动旋转 · 滚轮缩放 · 松手自动缓转</div>
+<div id="boot">LOADING</div>
+<script>
+window.__errs=[];
+function __showErr(msg,ln){
+  window.__errs.push(msg+" @"+ln);
+  var b=document.getElementById("boot");
+  if(b){ b.style.opacity=1; b.style.color="#ff7a6b"; b.style.fontSize="13px";
+         b.style.letterSpacing="0"; b.style.padding="0 40px"; b.style.textAlign="center";
+         b.textContent="ERR: "+msg+"  (line "+ln+")"; }
+}
+window.addEventListener("error",function(e){ __showErr(e.message||"?", e.lineno||0); });
+window.addEventListener("unhandledrejection",function(e){ __showErr("promise: "+String(e.reason&&e.reason.message||e.reason),0); });
+</script>
+
+<script>/*__THREE__*/</script>
+<script>
+const DATA = /*__DATA__*/;
+</script>
+<script>
+(function(){
+'use strict';
+const NB = 32, NB2 = NB*NB;
+const ALPHA0 = 0.28;
+
+// ---------- decode packed fields ----------
+function dec(b64){
+  const s = atob(b64), a = new Uint8Array(s.length);
+  for (let i=0;i<s.length;i++) a[i] = s.charCodeAt(i);
+  const f = new Float32Array(a.length);
+  for (let i=0;i<a.length;i++) f[i] = a[i]/255;
+  return f;
+}
+const F = {
+  mix:      dec(DATA.h),
+  density:  dec(DATA.layers.density),
+  pagerank: dec(DATA.layers.pagerank),
+  entities: dec(DATA.layers.entities),
+  recency:  dec(DATA.layers.recency),
+  typew:    dec(DATA.layers.typew)
+};
+const CNT = dec(DATA.count);
+const TY = [dec(DATA.types[0]), dec(DATA.types[1]), dec(DATA.types[2])];
+const NMAX = DATA.nmax;
+let curField = 'mix', alpha = ALPHA0, typeColor = false;
+const PURE = [[0.82,0.64,0.33],[0.27,0.80,0.47],[1.00,0.33,0.26]];  // world / experience / observation
+
+// ---------- three setup ----------
+const cv = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+if ('outputColorSpace' in renderer && THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+else if ('outputEncoding' in renderer && THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070d);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+
+scene.add(new THREE.AmbientLight(0xaab6c4, 0.60));
+const key = new THREE.DirectionalLight(0xfff2dd, 1.15); key.position.set(-1.05, 0.85, 1.0); scene.add(key);
+const fill = new THREE.DirectionalLight(0x8fa4c8, 0.34); fill.position.set(1.0, -0.7, -0.35); scene.add(fill);
+const rim  = new THREE.DirectionalLight(0x9cc4e8, 0.26); rim.position.set(0.4, -1.0, -0.9); scene.add(rim);
+
+// ---------- geometry: icosphere, no polar singularity ----------
+// three's PolyhedronGeometry is NON-INDEXED: every triangle owns its vertices, so
+// computeVertexNormals() would give flat shading. Weld first, then shade smooth.
+function weld(g){
+  const pos = g.attributes.position, n = pos.count;
+  const map = new Map(), remap = new Int32Array(n), verts = [];
+  const Q = 1e5;
+  for (let i=0;i<n;i++){
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const k = Math.round(x*Q)+'|'+Math.round(y*Q)+'|'+Math.round(z*Q);
+    let id = map.get(k);
+    if (id === undefined){ id = verts.length/3; map.set(k, id); verts.push(x,y,z); }
+    remap[i] = id;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  const idx = new Uint32Array(n);
+  for (let i=0;i<n;i++) idx[i] = remap[i];
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+const geo = weld(new THREE.IcosahedronGeometry(1, 31));
+const posAttr = geo.attributes.position;
+const VN = posAttr.count;
+const dirs = new Float32Array(VN*3);
+const thArr = new Float32Array(VN), phArr = new Float32Array(VN);
+for (let i=0;i<VN;i++){
+  let x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
+  const L = Math.hypot(x,y,z) || 1; x/=L; y/=L; z/=L;
+  dirs[i*3]=x; dirs[i*3+1]=y; dirs[i*3+2]=z;
+  // three: y is up. math-frame: z_up = y, x = x, y = z
+  thArr[i] = Math.asin(Math.max(-1,Math.min(1,y)));
+  phArr[i] = Math.atan2(z,x);
+}
+
+const colors = new Float32Array(VN*3);
+geo.setAttribute('color', new THREE.BufferAttribute(colors,3));
+
+const STOPS = [
+  [0.015,0.030,0.095],[0.030,0.105,0.270],[0.040,0.230,0.415],[0.060,0.395,0.435],
+  [0.180,0.560,0.365],[0.510,0.660,0.290],[0.860,0.715,0.320],[1.000,0.935,0.770]
+];
+const TINT = [[0.28,0.52,1.00],[0.34,0.95,0.58],[1.00,0.40,0.32]];
+function palette(h){
+  const x = Math.max(0,Math.min(1,h))*(STOPS.length-1);
+  const i = Math.min(STOPS.length-2, Math.floor(x)), f = x-i;
+  const a = STOPS[i], b = STOPS[i+1];
+  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+}
+// bilinear sample of a 32x32 row-major field
+function samp(A, fi, fj){
+  const i0 = Math.max(0,Math.min(NB-1,Math.floor(fi))), i1 = Math.min(NB-1,i0+1);
+  let a = fi-Math.floor(fi); if(a<0) a+=1;
+  let jj = fj % NB; if (jj<0) jj += NB;
+  const j0 = Math.floor(jj), j1 = (j0+1)%NB, b = jj-j0;
+  const v00=A[i0*NB+j0], v01=A[i0*NB+j1], v10=A[i1*NB+j0], v11=A[i1*NB+j1];
+  return (v00*(1-a)+v10*a)*(1-b) + (v01*(1-a)+v11*a)*b;
+}
+
+const fIv = new Float32Array(VN), fJv = new Float32Array(VN);
+for (let i=0;i<VN;i++){
+  fIv[i] = (thArr[i]+Math.PI/2)/Math.PI*NB - 0.5;
+  fJv[i] = ((phArr[i]+Math.PI)/(2*Math.PI)*NB - 0.5);
+}
+
+const mat = new THREE.MeshStandardMaterial({
+  vertexColors:true, roughness:0.82, metalness:0.06,
+  flatShading:false
+});
+const mesh = new THREE.Mesh(geo, mat);
+scene.add(mesh);
+
+let hVert = new Float32Array(VN);
+function rebuild(){
+  const A = F[curField];
+  const p = posAttr.array, c = colors;
+  for (let i=0;i<VN;i++){
+    const h = samp(A, fIv[i], fJv[i]);
+    hVert[i] = h;
+    const r = 1 + alpha*(h-0.5);
+    p[i*3]   = dirs[i*3]*r;
+    p[i*3+1] = dirs[i*3+1]*r;
+    p[i*3+2] = dirs[i*3+2]*r;
+    // colour: palette(h) blended with the bin's dominant type
+    const base = palette(h);
+    const idxI = Math.max(0,Math.min(NB-1,Math.floor(fIv[i])));
+    const jj = ((Math.floor(fJv[i])%NB)+NB)%NB;
+    const bi = idxI*NB+jj;
+    let tw = TY[0][bi], te = TY[1][bi], to = TY[2][bi];
+    const tsum = tw+te+to || 1;
+    tw/=tsum; te/=tsum; to/=tsum;
+    for (let ch=0;ch<3;ch++){
+      if (typeColor){
+        const pure = PURE[0][ch]*tw + PURE[1][ch]*te + PURE[2][ch]*to;
+        c[i*3+ch] = Math.min(1, pure*(0.42+0.72*h));
+      } else {
+        const tint = TINT[0][ch]*tw + TINT[1][ch]*te + TINT[2][ch]*to;
+        c[i*3+ch] = Math.min(1, base[ch]*(0.58+0.42*tint));
+      }
+    }
+  }
+  posAttr.needsUpdate = true;
+  geo.attributes.color.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+}
+rebuild();
+
+// ---------- camera orbit ----------
+let camTheta = 0.62, camPhi = 1.22, camDist = 4.35;
+let vTheta = 0, vPhi = 0, autoSpin = true, dragging = false;
+let lastX = 0, lastY = 0;
+
+function applyCamera(){
+  const st = Math.sin(camPhi);
+  camera.position.set(camDist*st*Math.cos(camTheta), camDist*Math.cos(camPhi), camDist*st*Math.sin(camTheta));
+  camera.lookAt(0,0,0);
+}
+
+cv.addEventListener('pointerdown', e=>{
+  dragging = true; autoSpin = false; cv.classList.add('drag');
+  lastX = e.clientX; lastY = e.clientY; cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e=>{
+  if (!dragging) { onHover(e); return; }
+  const dx = e.clientX-lastX, dy = e.clientY-lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  vTheta = -dx*0.0055; vPhi = -dy*0.0045;
+  camTheta += vTheta; camPhi += vPhi;
+  camPhi = Math.max(0.12, Math.min(Math.PI-0.12, camPhi));
+});
+window.addEventListener('pointerup', ()=>{ dragging=false; cv.classList.remove('drag'); });
+cv.addEventListener('wheel', e=>{
+  e.preventDefault();
+  camDist = Math.max(2.05, Math.min(8.5, camDist * (1 + Math.sign(e.deltaY)*0.075)));
+}, {passive:false});
+cv.addEventListener('dblclick', ()=>{ autoSpin = !autoSpin; });
+
+// ---------- hover readout ----------
+const rc = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let hoverT = 0;
+function onHover(e){
+  const now = performance.now();
+  if (now - hoverT < 55) return;
+  hoverT = now;
+  const r = cv.getBoundingClientRect();
+  ndc.x = ((e.clientX-r.left)/r.width)*2-1;
+  ndc.y = -((e.clientY-r.top)/r.height)*2+1;
+  rc.setFromCamera(ndc, camera);
+  const hit = rc.intersectObject(mesh, false);
+  const box = document.getElementById('tipv');
+  if (!hit.length){ box.innerHTML = '<span>悬停球面读数</span>'; return; }
+  const p = hit[0].point;
+  const L = Math.hypot(p.x,p.y,p.z) || 1;
+  const nx = p.x/L, ny = p.y/L, nz = p.z/L;
+  const th = Math.asin(Math.max(-1,Math.min(1,ny)));
+  const ph = Math.atan2(nz,nx);
+  const bi = Math.max(0,Math.min(NB-1,Math.floor((th+Math.PI/2)/Math.PI*NB)));
+  const bj = ((Math.floor((ph+Math.PI)/(2*Math.PI)*NB))%NB+NB)%NB;
+  const k = bi*NB+bj;
+  const cnt = Math.round(CNT[k]*NMAX);
+  const tf = [TY[0][k],TY[1][k],TY[2][k]];
+  const dom = ['world','experience','observation'][tf.indexOf(Math.max(tf[0],tf[1],tf[2]))];
+  box.innerHTML = '锚点 <span>lat#</span>'+bi+' <span>lon#</span>'+bj+'<br>'+
+    'h = <span class="d">'+(F[curField][k]).toFixed(3)+'</span><br>'+
+    '记忆 <span class="d">'+cnt+'</span> 条 · 主导 '+dom;
+}
+
+// ---------- UI ----------
+document.querySelectorAll('.btn[data-layer]').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.btn[data-layer]').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    curField = b.dataset.layer;
+    rebuild();
+  });
+});
+document.getElementById('typebtn').addEventListener('click', function(){
+  typeColor = !typeColor;
+  this.classList.toggle('on', typeColor);
+  rebuild();
+});
+const al = document.getElementById('alpha'), alv = document.getElementById('alphaVal');
+al.addEventListener('input', ()=>{
+  alpha = parseFloat(al.value); alv.textContent = alpha.toFixed(2); rebuild();
+});
+
+// ---------- loop ----------
+function resize(){
+  const w = cv.clientWidth, h = cv.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+let last = performance.now();
+function loop(){
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min(60, now-last); last = now;
+
+  if (!dragging){
+    if (autoSpin) camTheta += 0.0022*dt/16.7;
+    if (Math.abs(vTheta)>1e-5){ camTheta += vTheta; vTheta *= 0.93; }
+    if (Math.abs(vPhi)>1e-5){ camPhi += vPhi; vPhi *= 0.93;
+      camPhi = Math.max(0.12, Math.min(Math.PI-0.12, camPhi)); }
+  }
+  applyCamera();
+  renderer.render(scene, camera);
+}
+document.getElementById('boot').style.opacity = 0;
+setTimeout(()=>{ const b=document.getElementById('boot'); if(b) b.remove(); }, 600);
+loop();
+})();
+</script>
+</body>
+</html>

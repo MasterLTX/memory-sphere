@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>记忆球体 · 时间演化</title>
+<style>
+  html,body{margin:0;height:100%;background:#05070d;overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    color:#dfe8f5;-webkit-font-smoothing:antialiased}
+  #c{display:block;width:100%;height:100%;cursor:grab}
+  #c.drag{cursor:grabbing}
+  .hud{position:fixed;pointer-events:none;z-index:5}
+  #title{left:28px;top:24px}
+  #title h1{margin:0;font-size:14px;font-weight:600;letter-spacing:.14em;color:#eaf2ff}
+  #title p{margin:7px 0 0;font-size:11px;line-height:1.75;color:#6d7d96}
+  #title b{color:#9fb4d0;font-weight:500}
+
+  #stats{right:26px;top:24px;text-align:right;min-width:170px}
+  #stats .k{font-size:10px;letter-spacing:.14em;color:#5a6a82;text-transform:uppercase}
+  #stats .big{font-size:26px;font-weight:600;color:#cfe6ff;letter-spacing:.02em;
+    font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1}
+  #stats .sub{font-size:11px;color:#7f93ad;margin-top:6px;line-height:1.9;font-variant-numeric:tabular-nums}
+  #stats .sub b{color:#9fc4e8;font-weight:500}
+
+  #sliderwrap{right:26px;bottom:104px;pointer-events:auto;display:flex;flex-direction:column;
+    align-items:flex-end;gap:6px}
+  #sliderwrap .lbl{font-size:10px;letter-spacing:.14em;color:#5a6a82;text-transform:uppercase}
+  input[type=range]{-webkit-appearance:none;width:132px;height:3px;border-radius:2px;
+    background:linear-gradient(90deg,#5fa8e8,#2a3a52);outline:none;pointer-events:auto}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:#bfe0ff;border:2px solid #0a1018;cursor:pointer;box-shadow:0 0 8px rgba(120,190,255,.7)}
+  #alphaVal{font-size:11px;color:#8fc9ff;font-variant-numeric:tabular-nums}
+
+  /* timeline */
+  #timeui{left:50%;bottom:26px;transform:translateX(-50%);pointer-events:auto;
+    display:flex;align-items:center;gap:14px;padding:11px 18px 11px 14px;border-radius:12px;
+    background:rgba(12,18,29,.78);border:1px solid rgba(90,120,165,.22);backdrop-filter:blur(10px)}
+  #play{width:32px;height:32px;border-radius:50%;border:1px solid rgba(110,160,215,.45);
+    background:rgba(30,48,72,.9);color:#bfe0ff;font-size:12px;cursor:pointer;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;transition:all .15s;font-family:inherit}
+  #play:hover{background:rgba(52,86,128,.95);border-color:rgba(140,195,255,.7)}
+  #play.on{background:linear-gradient(135deg,#8fc9ff,#5fa8e8);color:#08111c;border-color:transparent}
+  #tmid{display:flex;flex-direction:column;gap:6px}
+  #tinfo{display:flex;align-items:baseline;gap:10px;font-variant-numeric:tabular-nums}
+  #tdate{font-size:13px;color:#d8e8fa;letter-spacing:.04em}
+  #tcum{font-size:11px;color:#7f93ad}
+  #tslider{-webkit-appearance:none;width:420px;height:3px;border-radius:2px;outline:none;
+    background:linear-gradient(90deg,rgba(95,168,232,.55),rgba(95,168,232,.15));cursor:pointer}
+  #tslider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+    background:#d5ecff;border:2px solid #0a1018;cursor:pointer;box-shadow:0 0 10px rgba(130,200,255,.85)}
+  #taxis{display:flex;justify-content:space-between;font-size:9.5px;color:#4e5e76;letter-spacing:.1em}
+
+  #legend{left:28px;bottom:26px}
+  #legend .bar{width:132px;height:9px;border-radius:5px;
+    background:linear-gradient(90deg,#040816,#081c45,#0a3b6a,#0f656e,#2e8f5c,#82a84a,#dbb752,#fff0c2)}
+  #legend .row{display:flex;justify-content:space-between;font-size:10px;color:#5f7089;margin-top:5px;width:132px}
+  #legend .types{display:flex;gap:13px;margin-top:11px;font-size:10.5px;color:#7d8ea6}
+  #legend .types i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:1px}
+
+  #boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#05070d;color:#5f7089;font-size:12px;letter-spacing:.2em;z-index:20;transition:opacity .5s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hud" id="title">
+  <h1>记忆球体 · 时间演化</h1>
+  <p>球面位置固定（全量 PCA3 分箱）<br>高度随时间重算 · 同一片地形隆起与沉积</p>
+</div>
+
+<div class="hud" id="stats">
+  <div class="k">累计记忆</div>
+  <div class="big" id="scum">10,441</div>
+  <div class="sub">覆盖锚点 <b id="sbins">1020</b> / 1024<br>全场峰值 <b id="speak">0.709</b></div>
+</div>
+
+<div class="hud" id="sliderwrap">
+  <div class="lbl">位移幅度 α <span id="alphaVal">0.28</span></div>
+  <input type="range" id="alpha" min="0.04" max="0.46" step="0.01" value="0.28">
+</div>
+
+<div class="hud" id="timeui">
+  <button id="play">▶</button>
+  <div id="tmid">
+    <div id="tinfo"><span id="tdate">2026-11-04</span><span id="tcum">10,441 条</span></div>
+    <input type="range" id="tslider" min="0" max="24" step="0.02" value="24">
+    <div id="taxis"><span>2026-09-20</span><span>2026-11-04</span></div>
+  </div>
+</div>
+
+<div class="hud" id="legend">
+  <div class="bar"></div>
+  <div class="row"><span>海沟 0</span><span>峰顶 1</span></div>
+  <div class="types">
+    <span><i style="background:#4a8cff"></i>world</span>
+    <span><i style="background:#5cf29a"></i>experience</span>
+    <span><i style="background:#ff6b5c"></i>observation</span>
+  </div>
+</div>
+
+<div id="boot">LOADING</div>
+<script>
+window.__errs=[];
+function __showErr(msg,ln){
+  window.__errs.push(msg+" @"+ln);
+  var b=document.getElementById("boot");
+  if(b){ b.style.opacity=1; b.style.color="#ff7a6b"; b.style.fontSize="13px";
+         b.style.letterSpacing="0"; b.style.padding="0 40px"; b.style.textAlign="center";
+         b.textContent="ERR: "+msg+"  (line "+ln+")"; }
+}
+window.addEventListener("error",function(e){ __showErr(e.message||"?", e.lineno||0); });
+</script>
+
+<script>/*__THREE__*/</script>
+<script>
+const DATA = /*__DATA__*/;
+const TIME = /*__TIME__*/;
+</script>
+<script>
+(function(){
+'use strict';
+const NB = 32, NB2 = NB*NB, ALPHA0 = 0.28;
+
+function dec(b64){
+  const s = atob(b64), a = new Uint8Array(s.length);
+  for (let i=0;i<s.length;i++) a[i] = s.charCodeAt(i);
+  const f = new Float32Array(a.length);
+  for (let i=0;i<a.length;i++) f[i] = a[i]/255;
+  return f;
+}
+const CNT = dec(DATA.count);
+const TY = [dec(DATA.types[0]), dec(DATA.types[1]), dec(DATA.types[2])];
+const NMAX = DATA.nmax;
+const FRAMES = TIME.frames.map(dec);
+const META = TIME.meta;
+const TMAX = FRAMES.length - 1;
+const LAST = FRAMES[TMAX];
+
+let alpha = ALPHA0;
+let frameT = TMAX;
+let playing = false;
+
+// ---------- three ----------
+const cv = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+if ('outputColorSpace' in renderer && THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+else if ('outputEncoding' in renderer && THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070d);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+
+scene.add(new THREE.AmbientLight(0xaab6c4, 0.60));
+const key = new THREE.DirectionalLight(0xfff2dd, 1.15); key.position.set(-1.05, 0.85, 1.0); scene.add(key);
+const fill = new THREE.DirectionalLight(0x8fa4c8, 0.34); fill.position.set(1.0, -0.7, -0.35); scene.add(fill);
+const rim  = new THREE.DirectionalLight(0x9cc4e8, 0.26); rim.position.set(0.4, -1.0, -0.9); scene.add(rim);
+
+function weld(g){
+  const pos = g.attributes.position, n = pos.count;
+  const map = new Map(), remap = new Int32Array(n), verts = [];
+  const Q = 1e5;
+  for (let i=0;i<n;i++){
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const k = Math.round(x*Q)+'|'+Math.round(y*Q)+'|'+Math.round(z*Q);
+    let id = map.get(k);
+    if (id === undefined){ id = verts.length/3; map.set(k, id); verts.push(x,y,z); }
+    remap[i] = id;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  const idx = new Uint32Array(n);
+  for (let i=0;i<n;i++) idx[i] = remap[i];
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+const geo = weld(new THREE.IcosahedronGeometry(1, 25));
+const posAttr = geo.attributes.position;
+const VN = posAttr.count;
+const dirs = new Float32Array(VN*3);
+const thArr = new Float32Array(VN), phArr = new Float32Array(VN);
+for (let i=0;i<VN;i++){
+  let x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
+  const L = Math.hypot(x,y,z) || 1; x/=L; y/=L; z/=L;
+  dirs[i*3]=x; dirs[i*3+1]=y; dirs[i*3+2]=z;
+  thArr[i] = Math.asin(Math.max(-1,Math.min(1,y)));
+  phArr[i] = Math.atan2(z,x);
+}
+const colors = new Float32Array(VN*3);
+geo.setAttribute('color', new THREE.BufferAttribute(colors,3));
+
+const STOPS = [
+  [0.015,0.030,0.095],[0.030,0.105,0.270],[0.040,0.230,0.415],[0.060,0.395,0.435],
+  [0.180,0.560,0.365],[0.510,0.660,0.290],[0.860,0.715,0.320],[1.000,0.935,0.770]
+];
+const TINT = [[0.28,0.52,1.00],[0.34,0.95,0.58],[1.00,0.40,0.32]];
+function palette(h){
+  const x = Math.max(0,Math.min(1,h))*(STOPS.length-1);
+  const i = Math.min(STOPS.length-2, Math.floor(x)), f = x-i;
+  const a = STOPS[i], b = STOPS[i+1];
+  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+}
+function samp(A, fi, fj){
+  const i0 = Math.max(0,Math.min(NB-1,Math.floor(fi))), i1 = Math.min(NB-1,i0+1);
+  let a = fi-Math.floor(fi); if(a<0) a+=1;
+  let jj = fj % NB; if (jj<0) jj += NB;
+  const j0 = Math.floor(jj), j1 = (j0+1)%NB, b = jj-j0;
+  const v00=A[i0*NB+j0], v01=A[i0*NB+j1], v10=A[i1*NB+j0], v11=A[i1*NB+j1];
+  return (v00*(1-a)+v10*a)*(1-b) + (v01*(1-a)+v11*a)*b;
+}
+
+const fIv = new Float32Array(VN), fJv = new Float32Array(VN);
+const binOf = new Int32Array(VN);
+for (let i=0;i<VN;i++){
+  fIv[i] = (thArr[i]+Math.PI/2)/Math.PI*NB - 0.5;
+  fJv[i] = ((phArr[i]+Math.PI)/(2*Math.PI)*NB - 0.5);
+  const ii = Math.max(0,Math.min(NB-1,Math.floor(fIv[i])));
+  const jj = ((Math.floor(fJv[i])%NB)+NB)%NB;
+  binOf[i] = ii*NB+jj;
+}
+
+const mat = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.82, metalness:0.06});
+const mesh = new THREE.Mesh(geo, mat);
+scene.add(mesh);
+
+let hVert = new Float32Array(VN);
+function rebuild(){
+  const t = Math.max(0, Math.min(TMAX, frameT));
+  const a = Math.floor(t), b = Math.min(TMAX, a+1), ft = t-a;
+  const A = FRAMES[a], B = FRAMES[b];
+  const lerp = ft > 1e-4 && b !== a;
+  const p = posAttr.array, c = colors;
+  for (let i=0;i<VN;i++){
+    const fi = fIv[i], fj = fJv[i];
+    let h = samp(A, fi, fj);
+    if (lerp) h = h*(1-ft) + samp(B, fi, fj)*ft;
+    hVert[i] = h;
+    const r = 1 + alpha*(h-0.5);
+    p[i*3]   = dirs[i*3]*r;
+    p[i*3+1] = dirs[i*3+1]*r;
+    p[i*3+2] = dirs[i*3+2]*r;
+    const base = palette(h);
+    const bi = binOf[i];
+    let tw = TY[0][bi], te = TY[1][bi], to = TY[2][bi];
+    const tsum = tw+te+to || 1;
+    tw/=tsum; te/=tsum; to/=tsum;
+    for (let ch=0;ch<3;ch++){
+      const tint = TINT[0][ch]*tw + TINT[1][ch]*te + TINT[2][ch]*to;
+      c[i*3+ch] = Math.min(1, base[ch]*(0.58+0.42*tint));
+    }
+  }
+  posAttr.needsUpdate = true;
+  geo.attributes.color.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  updateHud();
+}
+
+function updateHud(){
+  const t = Math.max(0, Math.min(TMAX, frameT));
+  const a = Math.floor(t), b = Math.min(TMAX, a+1), ft = t-a;
+  const ma = META[a], mb = META[b];
+  const cum = Math.round(ma.cum*(1-ft) + mb.cum*ft);
+  const bins = Math.round(ma.bins*(1-ft) + mb.bins*ft);
+  const peak = (ma.peak*(1-ft) + mb.peak*ft);
+  const dstr = ft > 0.5 ? mb.date : ma.date;
+  document.getElementById('scum').textContent = cum.toLocaleString();
+  document.getElementById('sbins').textContent = bins;
+  document.getElementById('speak').textContent = peak.toFixed(3);
+  document.getElementById('tdate').textContent = dstr;
+  document.getElementById('tcum').textContent = cum.toLocaleString() + ' 条';
+  const sl = document.getElementById('tslider');
+  if (Math.abs(parseFloat(sl.value) - t) > 1e-3) sl.value = t;
+}
+
+// ---------- camera ----------
+let camTheta = 0.62, camPhi = 1.22, camDist = 4.35;
+let vTheta = 0, vPhi = 0, autoSpin = true, dragging = false;
+let lastX = 0, lastY = 0;
+function applyCamera(){
+  const st = Math.sin(camPhi);
+  camera.position.set(camDist*st*Math.cos(camTheta), camDist*Math.cos(camPhi), camDist*st*Math.sin(camTheta));
+  camera.lookAt(0,0,0);
+}
+cv.addEventListener('pointerdown', e=>{
+  dragging = true; autoSpin = false; cv.classList.add('drag');
+  lastX = e.clientX; lastY = e.clientY; cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e=>{
+  if (!dragging) return;
+  const dx = e.clientX-lastX, dy = e.clientY-lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  vTheta = -dx*0.0055; vPhi = -dy*0.0045;
+  camTheta += vTheta; camPhi += vPhi;
+  camPhi = Math.max(0.12, Math.min(Math.PI-0.12, camPhi));
+});
+window.addEventListener('pointerup', ()=>{ dragging=false; cv.classList.remove('drag'); });
+cv.addEventListener('wheel', e=>{
+  e.preventDefault();
+  camDist = Math.max(2.05, Math.min(8.5, camDist * (1 + Math.sign(e.deltaY)*0.075)));
+}, {passive:false});
+cv.addEventListener('dblclick', ()=>{ autoSpin = !autoSpin; });
+
+// ---------- controls ----------
+const sl = document.getElementById('tslider');
+sl.max = TMAX;
+sl.addEventListener('input', ()=>{
+  playing = false; document.getElementById('play').classList.remove('on');
+  document.getElementById('play').textContent = '▶';
+  frameT = parseFloat(sl.value);
+  rebuild();
+});
+document.getElementById('play').addEventListener('click', ()=>{
+  playing = !playing;
+  const pb = document.getElementById('play');
+  pb.classList.toggle('on', playing);
+  pb.textContent = playing ? '❚❚' : '▶';
+  if (playing && frameT >= TMAX - 1e-3) frameT = 0;
+});
+const al = document.getElementById('alpha'), alv = document.getElementById('alphaVal');
+al.addEventListener('input', ()=>{
+  alpha = parseFloat(al.value); alv.textContent = alpha.toFixed(2); rebuild();
+});
+window.addEventListener('keydown', e=>{
+  if (e.code === 'Space'){ e.preventDefault(); document.getElementById('play').click(); }
+  if (e.code === 'ArrowLeft'){ frameT = Math.max(0, frameT-1); rebuild(); }
+  if (e.code === 'ArrowRight'){ frameT = Math.min(TMAX, frameT+1); rebuild(); }
+});
+
+function resize(){
+  const w = cv.clientWidth, h = cv.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+rebuild();
+
+let last = performance.now();
+let acc = 0;
+function loop(){
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min(80, now-last); last = now;
+
+  if (!dragging){
+    if (autoSpin) camTheta += 0.0022*dt/16.7;
+    if (Math.abs(vTheta)>1e-5){ camTheta += vTheta; vTheta *= 0.93; }
+    if (Math.abs(vPhi)>1e-5){ camPhi += vPhi; vPhi *= 0.93;
+      camPhi = Math.max(0.12, Math.min(Math.PI-0.12, camPhi)); }
+  }
+
+  if (playing){
+    acc += dt;
+    if (acc > 110){                 // ~9fps geometry updates during playback
+      acc = 0;
+      frameT += 0.34;
+      if (frameT >= TMAX){ frameT = TMAX; playing = false;
+        const pb = document.getElementById('play'); pb.classList.remove('on'); pb.textContent = '▶'; }
+      rebuild();
+    }
+  }
+  applyCamera();
+  renderer.render(scene, camera);
+}
+document.getElementById('boot').style.opacity = 0;
+setTimeout(()=>{ const b=document.getElementById('boot'); if(b) b.remove(); }, 600);
+loop();
+})();
+</script>
+</body>
+</html>
