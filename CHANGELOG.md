@@ -1,5 +1,7 @@
 # Changelog
 
+**English** · [简体中文](CHANGELOG.zh-CN.md)
+
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/).
@@ -20,6 +22,9 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   in every render the project produces.
 - Comment and value had disagreed: the comment said "tilted 18 deg", the code
   passed 72 (i.e. 90 − 18, counted twice).
+- `README.md` linked `docs/formulas.md`, which never existed in the repository.
+  The reference now points at `sphere/pipeline/build_sphere.py`, where the
+  arithmetic actually lives.
 
 ### Added
 
@@ -27,6 +32,12 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   spins about the vertical axis or in the image plane, by fitting a rotation
   model and a translation model to consecutive frames and comparing residuals.
   Exit code 1 on regression, so it can gate a release.
+- `README.zh-CN.md` and `CHANGELOG.zh-CN.md` — full Simplified Chinese editions,
+  linked from a language switcher at the top of both English files.
+- `scripts/check_bilingual_sync.py` — machine check that the two language
+  editions have not drifted apart: it compares heading structure, code blocks,
+  link targets, numeric literals, table geometry and length ratio, and exits 1
+  when any of them disagree.
 - `CHANGELOG.md` (this file).
 
 ### Measured

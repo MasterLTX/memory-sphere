@@ -1,5 +1,7 @@
 # memory-sphere
 
+**English** · [简体中文](README.zh-CN.md)
+
 > **Turn a bag of high-dimensional vectors into a terrain globe you can spin.**
 >
 > 10,441 memories, 1,024 dims each → PCA → 1,024 equal-area sphere anchors
@@ -33,7 +35,7 @@ Why PCA instead of UMAP: measured on real data, the top-3 components hold only 1
 variance **but the residual is isotropic** — singular values 61.3 / 58.7 / 56.9 (ratio 0.928),
 sphere centroid offset 0.058, and 1,020 of 1,024 bins get populated. Uniformly spread
 information carries no structure, so UMAP/k-means would only add distortion. See
-[`docs/formulas.md`](docs/formulas.md).
+[`sphere/pipeline/build_sphere.py`](sphere/pipeline/build_sphere.py) for the exact arithmetic.
 
 ## Quick start
 
