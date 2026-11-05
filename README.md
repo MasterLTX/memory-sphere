@@ -2,19 +2,21 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-> **Turn a bag of high-dimensional vectors into a terrain globe you can spin.**
+> **Memory Sphere**
 >
-> 10,441 memories, 1,024 dims each → PCA → 1,024 equal-area sphere anchors
-> → density / PageRank / entity / recency / type aggregated into a height field
-> → displaced icosphere with contour lines, and a 25-frame time slider.
+> Every memory is a mote of dust; given time, it settles into terrain.
+>
+> Memory is more than 1,024-dimensional vectors. It is also a planet that grows, slowly. Every memory lands; where many settle close together a ridge rises; what is forgotten becomes a trench, waiting to be remembered. Turn the globe, and what you see is not data — it is how a system remembers, how it forgets, and how it grows a shape in time.
 
 ![rotating globe](examples/rotating.gif)
 
 *(36 frames, 3.6 s per turn, rendered offline from the same pipeline — no screen recorder, no private data)*
 
-**[▶ Live demo — drag the globe](https://masterltx.github.io/memory-sphere/)** (3,000 synthetic memories, no private data)
+**[▶ Live demo — drag the globe](https://masterltx.github.io/memory-sphere/)** (3,000 **synthetic** memories at **64** dims, there to prove the pipeline runs; it demonstrates nothing about the 1,024-dim real data below)
 
 ## What it actually does
+
+In one line: 10,441 real memories, 1,024 dims each → PCA keeps the first 3 → land on 1,024 **equal-area** sphere anchors → aggregate density, PageRank, entity count, recency and type into a height field → displaced icosphere, plus a 25-frame time slider.
 
 Most vector visualisations give you a dot cloud: 10k points, no structure you can point at.
 This one **aggregates first, then draws**:
@@ -37,6 +39,41 @@ sphere centroid offset 0.058, and 1,020 of 1,024 bins get populated. Uniformly s
 information carries no structure, so UMAP/k-means would only add distortion. See
 [`sphere/pipeline/build_sphere.py`](sphere/pipeline/build_sphere.py) for the exact arithmetic.
 
+## What this globe can and cannot answer
+
+This section is discipline, not a disclaimer — it decides when you should open it.
+
+A position on this sphere **does not carry semantic proximity**. It is not a semantic map:
+two memories that mean similar things are not guaranteed to land on neighbouring anchors.
+
+Measured on the 3,000-by-64 synthetic set, recomputed through this project's own pipeline:
+
+| test | result | reference |
+|---|---|---|
+| variance carried by the top 3 PCs | 7.7% | ≈10% on real data |
+| singular-value ratio (closer to 1 = more isotropic) | 0.906 | 0.928 on real data |
+| sphere centroid offset | 0.007 | 0.058 on real data |
+| top-10 neighbour retention, original 64-D → sphere | **1.40%** | random baseline 0.36% |
+| mean cosine similarity inside one anchor | 0.0680 | −0.0004 across anchors |
+
+1.40% against a 0.36% random baseline is only 3.9× better: **the direction is right, the
+signal is far too weak to retrieve with.** Ask for "something like this one" and the original
+vector space answers with a cosine near 0.9; sphere adjacency answers with a 1.40% hit rate.
+
+So the boundary is clean:
+
+| it can answer | it cannot answer |
+|---|---|
+| where memories are dense | why these two memories are related |
+| where they are active (high PageRank) | why this memory was recalled by that query |
+| which region new memories land in | where one specific memory is |
+| how density migrates over time (25-frame slider) | what semantic topic a hill represents |
+
+One line: **this is a health dashboard for a memory system, not a search entrance.**
+
+A hill means "this patch of the sphere holds many memories with high count / PageRank /
+entity count" — not "this patch is one semantic topic".
+
 ## Quick start
 
 ```bash
@@ -52,6 +89,9 @@ open out/memory_sphere_deck.html
 
 No database, no API key, no network (except the first run, which fetches `three.js` + `KaTeX`
 into `vendor/`).
+
+The demo runs 3,000 by 64 for speed; the variance and neighbour numbers above come from the
+real 10,441 by 1,024 data.
 
 ## Use your own memory
 
@@ -97,6 +137,14 @@ scripts/           release gates: hero spin direction, bilingual drift, version 
    side by side look convincing either way. Decide from pixels, not eyes:
    `python scripts/check_hero_spin.py` fits a rotation model and a translation model to
    consecutive frames and fails if the rotation one wins.
+
+One more rule about acceptance testing, because mixing the two judges has burned this project:
+a **visual** property (spin direction, palette, star flare) deserves a pixel test — that is what
+`check_hero_spin.py` is; a **functional** property (click a hill, do you get that region's
+memories) deserves a task test — pose a concrete question and see whether the thing answers it.
+Both have failed here: judging a visual bug by "it looks fine" gives you "pretty therefore
+correct", and judging a function by pixel comparison gives you "the screenshot matches
+therefore it works".
 
 ## License
 

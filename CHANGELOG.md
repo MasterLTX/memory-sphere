@@ -43,6 +43,15 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   `sphere/__init__.py`. `scripts/check_version_sync.py` fails a release when the
   code version, the newest CHANGELOG entry (both languages) and the git tag at
   HEAD disagree.
+- README gained a "what this globe can and cannot answer" section, because the
+  honest reading of the PCA-vs-UMAP argument is that a sphere position carries
+  almost no semantic proximity. Measured: top-10 neighbour retention from the
+  original 64-D space to the sphere is 1.40% against a 0.36% random baseline,
+  and mean cosine similarity inside one anchor is 0.0680 versus −0.0004 across
+  anchors. The globe is a density and activity dashboard, not a retrieval
+  surface.
+- README now separates the two kinds of acceptance testing: visual properties
+  get a pixel test, functional properties get a task test.
 
 ### Measured
 
