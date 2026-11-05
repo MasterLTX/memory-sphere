@@ -6,9 +6,9 @@
 > → density / PageRank / entity / recency / type aggregated into a height field
 > → displaced icosphere with contour lines, and a 25-frame time slider.
 
-<!-- TODO(P2): replace with a 3-second GIF of the rotating globe -->
+![rotating globe](examples/rotating.gif)
 
-![cover](examples/cover.png)
+*(28-frame rotation rendered offline — no screen recorder, no private data)*
 
 ## What it actually does
 
