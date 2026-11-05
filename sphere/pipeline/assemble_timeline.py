@@ -5,8 +5,10 @@ from pathlib import Path
 
 import os
 OUT = Path(os.environ.get("SPHERE_OUT", Path(__file__).resolve().parents[2] / "out"))
-tpl = (OUT / "template_time.html").read_text(encoding="utf-8")
-three = (OUT / "vendor" / "three.min.js").read_text(encoding="utf-8", errors="replace")
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+tpl = (HERE / "template_time.html").read_text(encoding="utf-8")
+three = (ROOT / "vendor" / "three.min.js").read_text(encoding="utf-8", errors="replace")
 three = three.replace("</script", "<\\/script").replace("<!--", "<\\!--")
 data = (OUT / "web_data.json").read_text(encoding="utf-8")
 timef = (OUT / "time_frames.json").read_text(encoding="utf-8")

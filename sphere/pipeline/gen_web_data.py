@@ -31,8 +31,10 @@ p.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
 print("web_data.json", p.stat().st_size, "bytes")
 
 # ---- assemble the single-file page ----
-tpl = (OUT / "template.html").read_text(encoding="utf-8")
-three = (OUT / "vendor" / "three.min.js").read_text(encoding="utf-8", errors="replace")
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+tpl = (HERE / "template.html").read_text(encoding="utf-8")
+three = (ROOT / "vendor" / "three.min.js").read_text(encoding="utf-8", errors="replace")
 three = three.replace("</script", "<\\/script").replace("<!--", "<\\!--")
 assert "/*__THREE__*/" in tpl and "/*__DATA__*/" in tpl
 out = tpl.replace("/*__THREE__*/", three).replace("/*__DATA__*/", p.read_text(encoding="utf-8"))
