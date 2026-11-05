@@ -104,8 +104,13 @@ def build():
 
 
 def render_frame(Vd, F, Hv, tv, angle, size=440, alpha=0.28, ss=3):
-    # spin about the vertical axis (planet-like), tilted 18 deg from upright
-    M = rmat_x(math.radians(72)) @ rmat_y(angle)
+    # Spin about the vertical axis (planet-like): the spin axis must stay close
+    # to screen-up, so the tilt applied to it is SMALL. Rx(t) sends the spin
+    # axis y_hat to (0, cos t, sin t); at t=72 deg that is 95% along +z, i.e.
+    # straight down the view axis -> the globe just rotates in the image plane
+    # like a plate. t=18 deg keeps 95% of the axis vertical (verified by the
+    # rotation-vs-translation residual test in out/_diag_rotation.py).
+    M = rmat_x(math.radians(18)) @ rmat_y(angle)
     R = 1 + alpha * (Hv - 0.5)
     P = Vd * R[:, None]
     Pr = P @ M.T
