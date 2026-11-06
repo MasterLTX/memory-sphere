@@ -29,6 +29,16 @@ data = {
 
 # Named ridges and trenches, built by build_regions.py. Optional: without it the
 # page still renders, it just has nothing to call the mountains.
+# Cloud field (build_cloud.py): thick where memories reach far for their
+# neighbours. Independent of the height field by construction, verified at
+# spearman -0.235 -- that independence is the reason it is a second layer.
+cloud_p = OUT / "cloud32.npz"
+if cloud_p.exists():
+    z = np.load(cloud_p)
+    data["cloud"] = {"big": enc(z["big"].ravel()), "small": enc(z["small"].ravel())}
+else:
+    print("  (no cloud32.npz yet -- run sphere/pipeline/build_cloud.py)")
+
 reg_p = OUT / "regions.json"
 if reg_p.exists():
     data["regions"] = json.loads(reg_p.read_text(encoding="utf-8"))

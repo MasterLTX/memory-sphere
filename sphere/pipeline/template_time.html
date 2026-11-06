@@ -149,6 +149,49 @@ let alpha = ALPHA0;
 let frameT = TMAX;
 let playing = false;
 
+// ===================== [P] LIVE PARAMETERS (URL > localStorage > defaults) =====================
+// Every number the panel exposes lives in P. Loading happens HERE, before the first rebuild(),
+// so a shared link paints the requested look on frame one instead of flashing the defaults and
+// then snapping. The panel at the tail of the file is pure UI over this object; it never owns
+// state of its own, so the two can never disagree.
+const PDEF = { cloudR:1.30, density:0.55, bigWeight:0.60, spriteScale:1.00, cloudSpin:0.22,
+               cloudOpacity:0.85, alpha:ALPHA0, snow:0.90, water:0.25, waterOp:0.50,
+               glow:0.20, starBright:1.00, starDensity:1.00 };
+// Declared ranges — also used to clamp whatever a hand-edited URL throws at us, so a bad
+// link degrades to an edge value instead of a broken render.
+const PRANG = { cloudR:[1.05,1.60], density:[0.0,1.0], bigWeight:[0.0,1.0], spriteScale:[0.4,3.0],
+                cloudSpin:[-0.60,0.60], cloudOpacity:[0.0,1.0], alpha:[0.04,0.46],
+                snow:[0.70,0.97], water:[0.05,0.45], waterOp:[0.0,0.50], glow:[0.0,0.40],
+                starBright:[0.0,1.0], starDensity:[0.0,1.0] };
+const PKEYS = ['cloudR','density','bigWeight','spriteScale','cloudSpin','cloudOpacity',
+               'alpha','snow','water','waterOp','glow','starBright','starDensity'];
+const PSTORE = 'ms.sphere.look.v1';
+const P = {};
+(function(){
+  function num(v){
+    if (v === null || v === undefined || v === '') return null;
+    const f = parseFloat(v);
+    return isFinite(f) ? f : null;
+  }
+  let ls = null;
+  try { const raw = localStorage.getItem(PSTORE); if (raw) ls = JSON.parse(raw); } catch(e){ ls = null; }
+  let q = null;
+  try { q = (typeof URLSearchParams === 'function') ? new URLSearchParams(location.search) : null; }
+  catch(e){ q = null; }
+  for (let i=0;i<PKEYS.length;i++){
+    const k = PKEYS[i];
+    let v = q ? num(q.get(k)) : null;             // 1. the URL wins — a link reproduces a look
+    if (v === null && ls) v = num(ls[k]);         // 2. then the last look on this machine
+    if (v === null) v = PDEF[k];                  // 3. then the shipped default
+    const r = PRANG[k];
+    P[k] = Math.max(r[0], Math.min(r[1], v));
+  }
+  let pc = null;                                  // collapsed flag, same precedence
+  if (q && q.get('panel') !== null) pc = q.get('panel');
+  else if (ls && ls.panel !== undefined) pc = ls.panel;
+  P.panel = (pc === '0' || pc === 0 || pc === false) ? 0 : 1;
+})();
+
 // ---------- three ----------
 const cv = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true});
@@ -301,7 +344,7 @@ function fieldQuantile(A, B, ft, q){
 }
 // snow line = p90, clamped so a flat field cannot snow over the whole sphere
 function snowLineOf(A, B, ft){
-  const p = fieldQuantile(A, B, ft, 0.90);
+  const p = fieldQuantile(A, B, ft, P.snow);
   return p === p ? Math.max(0.55, Math.min(0.92, p)) : 0.86;
 }
 // waterline = p25 (v1.1; was p15, which covered only the deepest tail and read as a few faint
@@ -309,7 +352,7 @@ function snowLineOf(A, B, ft){
 // into ridge territory: on the shipped field p25 peaks at 0.553, so the 0.58 ceiling is inert
 // here and only guards a degenerate/flat field.
 function waterLineOf(A, B, ft){
-  const p = fieldQuantile(A, B, ft, 0.25);
+  const p = fieldQuantile(A, B, ft, P.water);
   return p === p ? Math.max(0.10, Math.min(0.58, p)) : 0.20;
 }
 function samp(A, fi, fj){
@@ -441,7 +484,7 @@ function rebuild(){
   // Halo reach is deliberately small: at 0.35 the additive shell pushed the measured
   // silhouette bbox out by ~24px. v1.1 raises 0.16 -> 0.20 because at 0.16 the crest halo was
   // invisible on a real render; 0.22 is the verified silhouette-safe ceiling, so stay below it.
-  const gPush = alpha*0.20;             // max outward push of the glow shell
+  const gPush = alpha*P.glow;           // max outward push of the glow shell
   const gp = glowPosAttr.array, gcA = glowColAttr.array;
   const wp = waterPosAttr.array;
   for (let i=0;i<VN;i++){
@@ -1093,6 +1136,204 @@ if (document.readyState === 'loading'){
   jxInit();                                                             // markup already present
 }
 
+
+// ===================== [cloud] a floating shell, NOT attached to the terrain =====
+// The cloud reads D.cloud (big/small, 32x32, 0..255). Its field is measured to be
+// ANTI-correlated with the height field (spearman -0.44 on real data): thick where
+// memories must reach far for their neighbours. It spins at its own rate -- two
+// layers moving at different speeds is the visual statement that they are two
+// different dimensions, which is the whole point of having a second layer.
+let cloudPts = null;
+function buildCloud(){
+  if (cloudPts){ scene.remove(cloudPts); cloudPts.geometry.dispose(); cloudPts.material.dispose(); cloudPts=null; }
+  if (!DATA || !DATA.cloud) return;
+  const big = dec(DATA.cloud.big), small = dec(DATA.cloud.small);
+  const w = P.bigWeight, dens = P.density, R = P.cloudR;
+  const pos=[], siz=[], alp=[];
+  let sd = 987654321;
+  const rnd = function(){ sd = (sd*1664525 + 1013904223) & 0x7fffffff; return sd/0x7fffffff; };
+  for (let i=0;i<NB;i++) for (let j=0;j<NB;j++){
+    const k = i*NB + j;
+    const v = w*big[k] + (1-w)*small[k];   // dec() already normalises to 0..1
+    if (v < 0.06) continue;
+    const n = Math.max(1, Math.round(dens*9.0*v));
+    for (let q=0;q<n;q++){
+      const ci = i + (rnd()-0.5)*1.1, cj = j + (rnd()-0.5)*1.1;
+      const z = ((ci+0.5)/NB)*2 - 1;
+      const lam = ((cj+0.5)/NB)*2*Math.PI - Math.PI;
+      const rr = Math.sqrt(Math.max(1 - z*z, 0));
+      pos.push(rr*Math.cos(lam)*R, rr*Math.sin(lam)*R, z*R);
+      siz.push((0.13 + 0.30*v) * P.spriteScale);
+      alp.push(Math.min(1, v*0.42*P.cloudOpacity));
+    }
+  }
+  if (!pos.length) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('aSize',    new THREE.Float32BufferAttribute(siz,1));
+  g.setAttribute('aAlpha',   new THREE.Float32BufferAttribute(alp,1));
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: true,
+    vertexShader: [
+      'attribute float aSize; attribute float aAlpha; varying float vA;',
+      'void main(){',
+      '  vA = aAlpha;',
+      '  vec4 mv = modelViewMatrix * vec4(position,1.0);',
+      '  gl_PointSize = aSize * 760.0 / max(0.001, -mv.z);',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'varying float vA;',
+      'void main(){',
+      '  vec2 d = gl_PointCoord - 0.5;',
+      '  float r = length(d);',
+      '  if (r > 0.5) discard;',
+      '  float a = pow(1.0 - smoothstep(0.0, 0.5, r), 1.6) * vA;',
+      '  gl_FragColor = vec4(0.78, 0.87, 1.0, a);',
+      '}'
+    ].join('\n')
+  });
+  cloudPts = new THREE.Points(g, m);
+  cloudPts.renderOrder = 6;
+  scene.add(cloudPts);
+}
+
+// ===================== [panel] every render knob, live =====================
+const PGROUP = [
+  ['云',   ['cloudR','density','bigWeight','spriteScale','cloudSpin','cloudOpacity']],
+  ['陆地', ['alpha','snow']],
+  ['海面', ['water','waterOp']],
+  ['辉光', ['glow']],
+  ['星空', ['starBright','starDensity']]
+];
+const PLABEL = {
+  cloudR:'云半径', density:'云浓度', bigWeight:'大团权重', spriteScale:'云团大小',
+  cloudSpin:'云转速', cloudOpacity:'云不透明度', alpha:'地形起伏', snow:'雪线分位',
+  water:'水位分位', waterOp:'海面不透明度', glow:'峰顶辉光',
+  starBright:'星空亮度', starDensity:'星空密度'
+};
+
+function loadParams(){
+  const q = new URLSearchParams(location.search);
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(PSTORE) || '{}'); } catch(e){ saved = {}; }
+  for (const k of PKEYS){
+    let v = q.has(k) ? parseFloat(q.get(k)) : (k in saved ? saved[k] : PDEF[k]);
+    if (!isFinite(v)) v = PDEF[k];
+    const r = PRANG[k];
+    P[k] = Math.min(r[1], Math.max(r[0], v));
+  }
+}
+function saveParams(){
+  const q = new URLSearchParams(location.search);
+  for (const k of PKEYS) q.set(k, (+P[k]).toFixed(3));
+  try { history.replaceState(null, '', '?' + q.toString()); } catch(e){}
+  try { localStorage.setItem(PSTORE, JSON.stringify(P)); } catch(e){}
+}
+function applyStars(){
+  if (!STARS || !STARS.regs) return;
+  for (let i=0;i<STARS.regs.length;i++){
+    const r = STARS.regs[i];
+    const m = r.mat || r.material;
+    if (m){
+      if (r._baseOp === undefined) r._baseOp = (m.opacity === undefined ? 1 : m.opacity);
+      m.opacity = r._baseOp * P.starBright;
+      m.transparent = true;
+      m.needsUpdate = true;
+    }
+    // regs carry only the material, no geometry handle, so "density" is expressed
+    // as star size: bigger points read as a denser field without rebuilding.
+    if (m && m.size !== undefined){
+      if (r._baseSize === undefined) r._baseSize = m.size;
+      m.size = r._baseSize * (0.55 + 0.9 * P.starDensity);
+    }
+  }
+}
+function applyWater(){
+  if (!waterMat || !waterMat.uniforms) return;
+  for (const key in waterMat.uniforms){
+    if (/opacity|alpha/i.test(key)) waterMat.uniforms[key].value = P.waterOp;
+  }
+}
+function applyAll(){
+  alpha = P.alpha;
+  rebuild();
+  buildCloud();
+  applyStars();
+  applyWater();
+  saveParams();
+}
+function buildPanel(){
+  const box = document.createElement('div');
+  box.id = 'pbox';
+  box.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'ph';
+  head.textContent = '渲染参数';
+  box.appendChild(head);
+  const body = document.createElement('div');
+  body.className = 'pb';
+  for (const [gname, keys] of PGROUP){
+    const gh = document.createElement('div');
+    gh.className = 'pg';
+    gh.textContent = gname;
+    body.appendChild(gh);
+    for (const k of keys){
+      if (k === 'cloudR' && (!DATA || !DATA.cloud)) continue;
+      const row = document.createElement('label');
+      row.className = 'pr';
+      const nm = document.createElement('span');
+      nm.textContent = PLABEL[k] || k;
+      const val = document.createElement('b');
+      val.textContent = (+P[k]).toFixed(2);
+      const sl = document.createElement('input');
+      sl.type = 'range';
+      sl.min = PRANG[k][0]; sl.max = PRANG[k][1];
+      sl.step = (PRANG[k][1] - PRANG[k][0]) / 100;
+      sl.value = P[k];
+      sl.addEventListener('input', function(){
+        P[k] = parseFloat(sl.value);
+        val.textContent = (+P[k]).toFixed(2);
+        applyAll();
+      });
+      row.appendChild(nm); row.appendChild(sl); row.appendChild(val);
+      body.appendChild(row);
+    }
+  }
+  box.appendChild(body);
+  head.addEventListener('click', function(){
+    box.classList.toggle('fold');
+    try { localStorage.setItem(PSTORE + '.fold', box.classList.contains('fold') ? '1' : '0'); } catch(e){}
+  });
+  if (localStorage.getItem(PSTORE + '.fold') === '1') box.classList.add('fold');
+  document.body.appendChild(box);
+
+  const css = document.createElement('style');
+  css.textContent = [
+    '#pbox{position:fixed;right:26px;bottom:170px;width:212px;z-index:6;',
+    '  background:rgba(10,15,24,.86);border:1px solid rgba(90,120,165,.26);border-radius:10px;',
+    '  font:11px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:#9fb6cf;',
+    '  backdrop-filter:blur(8px);max-height:52vh;overflow:auto}',
+    '#pbox .ph{padding:7px 10px;cursor:pointer;color:#cfe3f7;font-weight:600;',
+    '  border-bottom:1px solid rgba(90,120,165,.18);user-select:none}',
+    '#pbox.fold .pb{display:none}',
+    '#pbox .pb{padding:6px 10px 10px}',
+    '#pbox .pg{margin:8px 0 4px;letter-spacing:.12em;font-size:9.5px;color:#5f7794}',
+    '#pbox .pr{display:grid;grid-template-columns:66px 1fr 32px;align-items:center;gap:6px;margin:3px 0}',
+    '#pbox .pr span{color:#8fa6bd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#pbox .pr b{color:#9fd0ff;font-weight:500;text-align:right;font-variant-numeric:tabular-nums}',
+    '#pbox input[type=range]{-webkit-appearance:none;width:100%;height:2px;border-radius:1px;',
+    '  background:linear-gradient(90deg,rgba(95,168,232,.6),rgba(95,168,232,.15));outline:none}',
+    '#pbox input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height:9px;',
+    '  border-radius:50%;background:#bfe0ff;border:1px solid #0a1018;cursor:pointer}'
+  ].join('');
+  document.head.appendChild(css);
+}
+
+loadParams();
+setTimeout(function(){ buildPanel(); applyAll(); }, 0);
+
 let last = performance.now();
 let acc = 0;
 function loop(){
@@ -1119,6 +1360,7 @@ function loop(){
   }
   applyCamera();
   tickStars(now);
+  if (cloudPts) cloudPts.rotation.y = (now*0.001) * P.cloudSpin * 0.17;
   renderer.render(scene, camera);
 }
 document.getElementById('boot').style.opacity = 0;
