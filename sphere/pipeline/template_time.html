@@ -154,18 +154,23 @@ let playing = false;
 // so a shared link paints the requested look on frame one instead of flashing the defaults and
 // then snapping. The panel at the tail of the file is pure UI over this object; it never owns
 // state of its own, so the two can never disagree.
-const PDEF = { cloudR:1.30, density:0.55, bigWeight:0.60, spriteScale:1.00, cloudSpin:0.22,
+const PDEF = { cloudR:1.10, density:0.55, bigWeight:0.60, spriteScale:1.00, cloudSpin:0.22,
                cloudOpacity:0.85, alpha:ALPHA0, snow:0.90, water:0.25, waterOp:0.50,
                glow:0.20, starBright:1.00, starDensity:1.00 };
 // Declared ranges — also used to clamp whatever a hand-edited URL throws at us, so a bad
 // link degrades to an edge value instead of a broken render.
-const PRANG = { cloudR:[1.05,1.60], density:[0.0,1.0], bigWeight:[0.0,1.0], spriteScale:[0.4,3.0],
+// cloudR changed meaning in v1.2: it is no longer the shell's radius (which made two
+// silhouettes) but the HEIGHT OF THE SHELL ABOVE THE TERRAIN, so 1.00..1.40 now reads
+// as 0.00..0.40 above whatever radius the current frame's terrain has at that point.
+const PRANG = { cloudR:[1.00,1.40], density:[0.0,1.0], bigWeight:[0.0,1.0], spriteScale:[0.4,3.0],
                 cloudSpin:[-0.60,0.60], cloudOpacity:[0.0,1.0], alpha:[0.04,0.46],
                 snow:[0.70,0.97], water:[0.05,0.45], waterOp:[0.0,0.50], glow:[0.0,0.40],
                 starBright:[0.0,1.0], starDensity:[0.0,1.0] };
 const PKEYS = ['cloudR','density','bigWeight','spriteScale','cloudSpin','cloudOpacity',
                'alpha','snow','water','waterOp','glow','starBright','starDensity'];
-const PSTORE = 'ms.sphere.look.v1';
+// v2: cloudR's meaning changed, so every saved v1 look is now nonsense (a stored 1.32
+// would clamp to the new 1.40 ceiling and float the weather overhead). Retire the key.
+const PSTORE = 'ms.sphere.look.v2';
 const P = {};
 (function(){
   function num(v){
@@ -307,6 +312,10 @@ for (let i=0;i<VN;i++){
 }
 const colors = new Float32Array(VN*3);
 geo.setAttribute('color', new THREE.BufferAttribute(colors,3));
+// [cloud] the shell rides the SAME vertices as the terrain -- rebuild() writes these every
+// frame from the same `r` it just computed, so the two can never drift apart. Declared
+// here, above rebuild(), because rebuild is the function that fills them.
+let cloudPos = null, cloudMat = null;
 
 const STOPS = [
   [0.015,0.030,0.095],[0.030,0.105,0.270],[0.040,0.230,0.415],[0.060,0.395,0.435],
@@ -487,6 +496,9 @@ function rebuild(){
   const gPush = alpha*P.glow;           // max outward push of the glow shell
   const gp = glowPosAttr.array, gcA = glowColAttr.array;
   const wp = waterPosAttr.array;
+  // cloud shell: same dirs, same r, pushed out by a fixed height. One silhouette.
+  const cp = cloudPos ? cloudPos.array : null;
+  const cgap = P.cloudR - 1.0;
   for (let i=0;i<VN;i++){
     const fi = fIv[i], fj = fJv[i];
     let h = samp(A, fi, fj);
@@ -496,6 +508,12 @@ function rebuild(){
     p[i*3]   = dirs[i*3]*r;
     p[i*3+1] = dirs[i*3+1]*r;
     p[i*3+2] = dirs[i*3+2]*r;
+    if (cp){
+      const cr = r + cgap;
+      cp[i*3]   = dirs[i*3]*cr;
+      cp[i*3+1] = dirs[i*3+1]*cr;
+      cp[i*3+2] = dirs[i*3+2]*cr;
+    }
     const base = palette(h);
     const bi = binOf[i];
     let tw = TY[0][bi], te = TY[1][bi], to = TY[2][bi];
@@ -538,6 +556,11 @@ function rebuild(){
   glowGeo.attributes.aGlow.needsUpdate = true;
   waterPosAttr.needsUpdate = true;
   waterGeo.attributes.aWat.needsUpdate = true;
+  if (cloudPos){
+    cloudPos.needsUpdate = true;
+    // the shell has no normals of its own -- positions moved, so its bound stale too
+    cloudPts.geometry.computeBoundingSphere();
+  }
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
   updateHud();
@@ -1137,66 +1160,137 @@ if (document.readyState === 'loading'){
 }
 
 
-// ===================== [cloud] a floating shell, NOT attached to the terrain =====
-// The cloud reads D.cloud (big/small, 32x32, 0..255). Its field is measured to be
-// ANTI-correlated with the height field (spearman -0.44 on real data): thick where
-// memories must reach far for their neighbours. It spins at its own rate -- two
-// layers moving at different speeds is the visual statement that they are two
-// different dimensions, which is the whole point of having a second layer.
-let cloudPts = null;
+// ===================== [cloud] a shell that HUGS the terrain =====================
+// v1.2 first floated the cloud at a fixed radius 1.30 and sprited it out of ~10k point
+// sprites. Two problems, both structural, neither fixable by tuning:
+//   1. Two spheres at two radii give TWO silhouettes. The eye reads that as a big cloud
+//      ball with a small planet inside, not as a planet wearing weather.
+//   2. 1024 sprites cannot make cloud texture. Cloud is curled, torn and layered; sprites
+//      stack into an even grey fog no matter how the size/alpha/count are traded off.
+// So: the shell now rides the terrain's own vertices (rebuild() writes them from the same
+// `r`, so there is exactly one silhouette), and its look is a fragment shader -- a 32x32
+// field for WHERE, domain-warped fbm for HOW TORN. That is the standard construction for
+// cloud, and it is the only one here that can produce an edge.
+//
+// Data: DATA.cloud.{big,small}, 32x32 lat-long on the same grid the height field uses.
+// Measured anti-correlated with height (spearman -0.44): thick where memories must reach
+// far for their neighbours, thin where they clump.
+let cloudPts = null, _cloudTex = null;
+function cloudTextures(){
+  if (_cloudTex) return _cloudTex;
+  const mk = function(fa){
+    const u8 = new Uint8Array(NB*NB);
+    for (let i=0;i<NB*NB;i++) u8[i] = Math.max(0, Math.min(255, Math.round(fa[i]*255)));
+    const t = new THREE.DataTexture(u8, NB, NB, THREE.RedFormat);
+    t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+    t.wrapS = THREE.RepeatWrapping;     // longitude wraps; latitude must not
+    t.wrapT = THREE.ClampToEdgeWrapping;
+    t.needsUpdate = true;
+    return t;
+  };
+  _cloudTex = { big: mk(dec(DATA.cloud.big)), small: mk(dec(DATA.cloud.small)) };
+  return _cloudTex;
+}
 function buildCloud(){
-  if (cloudPts){ scene.remove(cloudPts); cloudPts.geometry.dispose(); cloudPts.material.dispose(); cloudPts=null; }
-  if (!DATA || !DATA.cloud) return;
-  const big = dec(DATA.cloud.big), small = dec(DATA.cloud.small);
-  const w = P.bigWeight, dens = P.density, R = P.cloudR;
-  const pos=[], siz=[], alp=[];
-  let sd = 987654321;
-  const rnd = function(){ sd = (sd*1664525 + 1013904223) & 0x7fffffff; return sd/0x7fffffff; };
-  for (let i=0;i<NB;i++) for (let j=0;j<NB;j++){
-    const k = i*NB + j;
-    const v = w*big[k] + (1-w)*small[k];   // dec() already normalises to 0..1
-    if (v < 0.06) continue;
-    const n = Math.max(1, Math.round(dens*9.0*v));
-    for (let q=0;q<n;q++){
-      const ci = i + (rnd()-0.5)*1.1, cj = j + (rnd()-0.5)*1.1;
-      const z = ((ci+0.5)/NB)*2 - 1;
-      const lam = ((cj+0.5)/NB)*2*Math.PI - Math.PI;
-      const rr = Math.sqrt(Math.max(1 - z*z, 0));
-      pos.push(rr*Math.cos(lam)*R, rr*Math.sin(lam)*R, z*R);
-      siz.push((0.13 + 0.30*v) * P.spriteScale);
-      alp.push(Math.min(1, v*0.42*P.cloudOpacity));
-    }
+  if (cloudPts){
+    scene.remove(cloudPts);
+    cloudPts.geometry.dispose(); cloudPts.material.dispose();
+    cloudPts = null; cloudPos = null; cloudMat = null;
   }
-  if (!pos.length) return;
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
-  g.setAttribute('aSize',    new THREE.Float32BufferAttribute(siz,1));
-  g.setAttribute('aAlpha',   new THREE.Float32BufferAttribute(alp,1));
-  const m = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, depthTest: true,
+  if (!DATA || !DATA.cloud) return;
+  const tx = cloudTextures();
+  cloudMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: true, side: THREE.FrontSide,
+    uniforms: {
+      uBig:   { value: tx.big },
+      uSmall: { value: tx.small },
+      uW:     { value: P.bigWeight },
+      uOp:    { value: P.cloudOpacity },
+      uScale: { value: 5.5 / Math.max(0.3, P.spriteScale) },
+      uCov:   { value: 0.46 - 0.24*P.density },
+      uFlow:  { value: P.cloudSpin * 0.020 },
+      uTime:  { value: 0.0 }
+    },
     vertexShader: [
-      'attribute float aSize; attribute float aAlpha; varying float vA;',
+      'varying vec3 vDir; varying vec3 vN; varying vec3 vView;',
       'void main(){',
-      '  vA = aAlpha;',
+      '  vDir = normalize(position);',
+      // no normal attribute on this geometry: for a sphere the radial direction IS it
+      '  vN = normalize(normalMatrix * vDir);',
       '  vec4 mv = modelViewMatrix * vec4(position,1.0);',
-      '  gl_PointSize = aSize * 760.0 / max(0.001, -mv.z);',
+      '  vView = normalize(-mv.xyz);',
       '  gl_Position = projectionMatrix * mv;',
       '}'
     ].join('\n'),
     fragmentShader: [
-      'varying float vA;',
+      'uniform sampler2D uBig; uniform sampler2D uSmall;',
+      'uniform float uW; uniform float uOp; uniform float uScale;',
+      'uniform float uCov; uniform float uFlow; uniform float uTime;',
+      'varying vec3 vDir; varying vec3 vN; varying vec3 vView;',
+      'float h31(vec3 p){',
+      '  p = fract(p * 0.1031);',
+      '  p += dot(p, p.yzx + 33.33);',
+      '  return fract((p.x + p.y) * p.z);',
+      '}',
+      'float vn(vec3 x){',
+      '  vec3 i = floor(x), f = fract(x);',
+      '  f = f*f*(3.0-2.0*f);',
+      '  float a = mix(mix(h31(i+vec3(0,0,0)), h31(i+vec3(1,0,0)), f.x),',
+      '                mix(h31(i+vec3(0,1,0)), h31(i+vec3(1,1,0)), f.x), f.y);',
+      '  float b = mix(mix(h31(i+vec3(0,0,1)), h31(i+vec3(1,0,1)), f.x),',
+      '                mix(h31(i+vec3(0,1,1)), h31(i+vec3(1,1,1)), f.x), f.y);',
+      '  return mix(a, b, f.z);',
+      '}',
+      'float fbm(vec3 p){',
+      '  float s = 0.0, a = 0.5;',
+      '  for (int k = 0; k < 4; k++){ s += a * vn(p); p *= 2.13; a *= 0.5; }',
+      '  return s;',
+      '}',
       'void main(){',
-      '  vec2 d = gl_PointCoord - 0.5;',
-      '  float r = length(d);',
-      '  if (r > 0.5) discard;',
-      '  float a = pow(1.0 - smoothstep(0.0, 0.5, r), 1.6) * vA;',
-      '  gl_FragColor = vec4(0.78, 0.87, 1.0, a);',
+      // SAME parameterisation as fIv/fJv in the height lookup: row = asin(y), col = atan2(z,x).
+      // Getting this wrong slides the weather a quarter turn away from the terrain it belongs to.
+      '  float lat = asin(clamp(vDir.y, -1.0, 1.0));',
+      // GLSL ES 1.00 has NO atan2 -- the two-argument form is atan(y, x). Calling it
+      // atan2 made the whole fragment shader fail to compile, and a material that fails
+      // to compile does not throw: it simply draws nothing, which reads as "the cloud
+      // is missing" rather than "the shader is broken".
+      '  float lon = atan(vDir.z, vDir.x);',
+      '  vec2 uvf = vec2(lon/(2.0*3.14159265) + 0.5, (lat + 1.5707963)/3.14159265);',
+      '  uvf.x += uTime * uFlow;',
+      '  float v = mix(texture2D(uSmall, uvf).r, texture2D(uBig, uvf).r, uW);',
+      '  vec3 q = vDir * uScale;',
+      // domain warping: sample the field at a position that is itself displaced by noise.
+      // That is what bends smooth into curled, torn, cloud-shaped.
+      '  vec3 wp = vec3(fbm(q + vec3(1.7, 9.2, 3.1)),',
+      '                 fbm(q + vec3(8.3, 2.8, 5.7)),',
+      '                 fbm(q + vec3(4.1, 5.5, 1.3)));',
+      '  float n = fbm(q + wp * 1.8);',
+      // field says WHERE, noise says HOW TORN, smoothstep gives the bank an EDGE
+      '  float cov = smoothstep(uCov, uCov + 0.42, v * (0.30 + 1.45*n));',
+      '  if (cov <= 0.003) discard;',
+      '  float limb = 1.0 - abs(dot(vN, vView));',
+      // fade at the limb, do not boost it: this shell has no thickness, so "more air
+      // near the edge" is not true here -- boosting it just paints a grey band around
+      // the silhouette where the shell stands proud of the terrain against empty space
+      '  float a = cov * uOp * (0.88 - 0.88*limb);',
+      '  vec3 col = mix(vec3(0.55, 0.66, 0.90), vec3(0.97, 0.99, 1.0), cov);',
+      '  gl_FragColor = vec4(col, a);',
       '}'
     ].join('\n')
   });
-  cloudPts = new THREE.Points(g, m);
+  const cg = new THREE.BufferGeometry();
+  cloudPos = new THREE.BufferAttribute(new Float32Array(VN*3), 3);
+  cg.setAttribute('position', cloudPos);
+  // OWN index instance, sharing only the winding array. Handing the terrain's index
+  // ATTRIBUTE straight to a second geometry makes the two fight over one VAO binding,
+  // and the shell then rasterises with the wrong vertices -- it draws, it just lands
+  // underneath the terrain, so it looks like it never rendered at all.
+  cg.setIndex(new THREE.BufferAttribute(geo.index.array, 1));
+  cloudPts = new THREE.Mesh(cg, cloudMat);
+  cloudPts.frustumCulled = false;  // vertices are written after the bound is computed
   cloudPts.renderOrder = 6;
   scene.add(cloudPts);
+  rebuild();                       // fill the shell once, immediately
 }
 
 // ===================== [panel] every render knob, live =====================
@@ -1208,8 +1302,8 @@ const PGROUP = [
   ['星空', ['starBright','starDensity']]
 ];
 const PLABEL = {
-  cloudR:'云半径', density:'云浓度', bigWeight:'大团权重', spriteScale:'云团大小',
-  cloudSpin:'云转速', cloudOpacity:'云不透明度', alpha:'地形起伏', snow:'雪线分位',
+  cloudR:'云层高度', density:'云浓度', bigWeight:'大团权重', spriteScale:'云团大小',
+  cloudSpin:'云流速', cloudOpacity:'云不透明度', alpha:'地形起伏', snow:'雪线分位',
   water:'水位分位', waterOp:'海面不透明度', glow:'峰顶辉光',
   starBright:'星空亮度', starDensity:'星空密度'
 };
@@ -1360,7 +1454,9 @@ function loop(){
   }
   applyCamera();
   tickStars(now);
-  if (cloudPts) cloudPts.rotation.y = (now*0.001) * P.cloudSpin * 0.17;
+  // the shell no longer spins as an object -- its vertices are the terrain's. Weather
+  // drifts instead: uTime slides the field lookup along longitude (uFlow carries the rate).
+  if (cloudMat && cloudMat.uniforms && cloudMat.uniforms.uTime) cloudMat.uniforms.uTime.value = now*0.001;
   renderer.render(scene, camera);
 }
 document.getElementById('boot').style.opacity = 0;

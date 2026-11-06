@@ -55,9 +55,60 @@ REQUIRED = [
     ("snow", "snow-line function", r"function\s+snowLineOf\s*\(", 1),
     ("displace", "height formula verbatim",
      r"1 \+ alpha\*\(h-0\.5\)", 1),
+    # --- cloud shell (v1.2) -------------------------------------------------------
+    # These target the two failures that DO NOT throw. A fragment shader that fails to
+    # compile draws nothing and logs to console.error, which this deck never reads; a
+    # second geometry handed the terrain's index ATTRIBUTE fights it for one VAO
+    # binding and rasterises with the wrong vertices. Both look exactly like "the cloud
+    # is not there", and both cost an afternoon to find without an assertion.
+    ("cloud", "cloud ShaderMaterial",
+     r"cloudMat\s*=\s*new\s+THREE\.ShaderMaterial\s*\(", 1),
+    ("cloud", "cloud field textures wired", r"uBig:\s*\{", 1),
+    ("cloud", "cloud small-scale texture wired", r"uSmall:\s*\{", 1),
+    ("cloud", "cloud shell added to scene", r"scene\.add\(\s*cloudPts\s*\)", 1),
+    # the shell must reuse the terrain topology by ARRAY, never the index attribute
+    ("cloud", "own index attribute (not shared)",
+     r"setIndex\(\s*new\s+THREE\.BufferAttribute\(\s*geo\.index\.array", 1),
+    # height-above-terrain semantics: the shell rides r + (cloudR - 1.0)
+    ("cloud", "cloud height above terrain", r"P\.cloudR\s*-\s*1\.0", 1),
+    # GLSL ES 1.00 has no atan2 -- using it kills the whole fragment shader silently.
+    # Assert the correct spelling positively: a bare "no atan2 anywhere in the deck"
+    # check also hits the vendored three.min.js (31 hits) and can never pass.
+    ("cloud", "GLSL longitude via atan(y,x)",
+     r"float\s+lon\s*=\s*atan\(\s*vDir\.z\s*,\s*vDir\.x\s*\)", 1),
 ]
 
 PLACEHOLDERS = ["/*__THREE__*/", "/*__DATA__*/", "/*__TIME__*/"]
+
+
+def _decode(b64: str) -> list:
+    import base64
+    return [b / 255.0 for b in base64.b64decode(b64)]
+
+
+def _rank(xs: list) -> list:
+    order = sorted(range(len(xs)), key=lambda i: xs[i])
+    r = [0.0] * len(xs)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and xs[order[j + 1]] == xs[order[i]]:
+            j += 1
+        avg = (i + j) / 2.0 + 1.0          # ties share their mean rank
+        for k in range(i, j + 1):
+            r[order[k]] = avg
+        i = j + 1
+    return r
+
+
+def _spearman(a: list, b: list) -> float:
+    ra, rb = _rank(a), _rank(b)
+    n = len(ra)
+    ma, mb = sum(ra) / n, sum(rb) / n
+    num = sum((ra[i] - ma) * (rb[i] - mb) for i in range(n))
+    da = sum((ra[i] - ma) ** 2 for i in range(n)) ** 0.5
+    db = sum((rb[i] - mb) ** 2 for i in range(n)) ** 0.5
+    return 0.0 if da * db == 0 else num / (da * db)
 
 
 def main(argv=None) -> int:
@@ -88,7 +139,9 @@ def main(argv=None) -> int:
 
     for group, label, pattern, want in REQUIRED:
         hits = len(re.findall(pattern, text))
-        check(group, label, hits >= want, str(want), str(hits))
+        # want == 0 means "must be absent" -- a >= test would pass trivially there
+        ok = (hits == 0) if want == 0 else (hits >= want)
+        check(group, label, ok, str(want), str(hits))
 
     # The formula lives at more than one site (vertex displacement and the
     # height helper), so the gate is "every site still says 0.5", not "there is
@@ -104,6 +157,24 @@ def main(argv=None) -> int:
 
     check("size", "deck under budget", size < a.max_bytes,
           f"<{a.max_bytes // 1024}K", f"{size // 1024}K")
+
+    # --- data level: the cloud must stay a DIFFERENT reading of the field ---------
+    # Cloud is link reach, not density. The measured field is anti-correlated with
+    # height (~-0.44 on the real corpus); if a future change makes cloud a restatement
+    # of the terrain the two layers stop meaning anything, and no pixel test would
+    # catch it because the render would still look plausible.
+    data_path = a.deck.parent / "web_data.json"
+    if data_path.exists():
+        import json
+        dd = json.loads(data_path.read_text(encoding="utf-8"))
+        hh = _decode(dd["h"])
+        big, small = _decode(dd["cloud"]["big"]), _decode(dd["cloud"]["small"])
+        cloud = [0.6 * big[i] + 0.4 * small[i] for i in range(len(big))]   # PDEF.bigWeight
+        rho = _spearman(hh, cloud)
+        check("cloud", "cloud vs land |spearman| < 0.6", abs(rho) < 0.6,
+              "<0.6", f"{rho:+.3f}")
+    else:
+        check("cloud", "cloud vs land |spearman| < 0.6", False, "<0.6", "no data")
 
     width = max(len(r[1]) for r in rows) + 2
     print(f"  {'group':10s} {'check'.ljust(width)} {'want':>6s} {'hits':>8s}")
