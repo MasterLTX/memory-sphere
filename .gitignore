@@ -17,3 +17,6 @@ _*.png
 __pycache__/
 *.pyc
 .venv/
+
+# ---- internal handoff notes: never publish (they quote local paths and corpus sizes) ----
+_private/
