@@ -96,7 +96,7 @@ git push origin v1.0.0
 
 ---
 
-## 6. 发布前自检：三道人工 + 三道自动
+## 6. 发布前自检：四道人工 + 三道自动
 
 ```bash
 # ① 有没有敏感东西混进来（应该没有任何输出）
@@ -105,15 +105,26 @@ git grep -nE "密码|password|token|secret|你们公司名|你的用户名" -- .
 # ② 有没有大文件（>5MB 会被 GitHub 警告，>100MB 直接拒绝）
 git ls-files | xargs -I{} du -h {} 2>/dev/null | sort -rh | head -5
 
-# ③ 干净环境能不能跑（最重要）
+# ③ docs/ 里只能有发布产物（这一条是踩坑后加的，见下面的说明）
+git ls-files docs/
+
+# ④ 干净环境能不能跑（最重要）
 python -m venv /tmp/clean && /tmp/clean/bin/pip install -r requirements.txt
 /tmp/clean/bin/python -m sphere demo
 
-# ④ 三道自动门禁：任何一道不过就别发
+# ⑤ 三道自动门禁：任何一道不过就别发
 python scripts/check_version_sync.py --no-tag   # 打 tag 前跑；打完 tag 去掉 --no-tag 复核
 python scripts/check_bilingual_sync.py          # 中英两版有没有漂移
 python scripts/check_hero_spin.py               # 首屏 GIF 到底在怎么转
 ```
+
+> **③ 为什么单独列一条**：`docs/` 是 Pages 的发布根目录，里面的**每一个文件都会被当成网页公开**，
+> 不只是 `index.html`。把交接笔记、内部记录、草稿放进 `docs/`，它们就会出现在
+> `https://<you>.github.io/<repo>/xxx.md` 上。内部文档一律放 `_private/`（已在 `.gitignore` 里），
+> 或者根本不要 `git add`。
+>
+> 相应地，`docs/` 里应当只有：`index.html`（页面）、页面运行时按需加载的 `web_data.extra.json`、
+> 以及这份 `PUBLISHING.md`。多出任何东西，先问一句"它该被公开吗"再提交。
 
 ---
 
