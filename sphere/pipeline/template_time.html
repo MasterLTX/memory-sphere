@@ -1175,9 +1175,38 @@ if (document.readyState === 'loading'){
 // Data: DATA.cloud.{big,small}, 32x32 lat-long on the same grid the height field uses.
 // Measured anti-correlated with height (spearman -0.44): thick where memories must reach
 // far for their neighbours, thin where they clump.
-let cloudPts = null, _cloudTex = null;
+let cloudPts = null, _cloudTex = null, _cloudArr = null;
+// The shader's coverage threshold is an absolute number, but "thick cloud" is a
+// relative reading: on the real corpus the field's median reach painted ~40% of the
+// sphere, on the demo's synthetic memories the same threshold painted ~85% and
+// swallowed the terrain. Two fixes, both needed:
+//   * stretch each scale to its own 5-95 percentile, so the field's dynamic range is
+//     comparable across corpora;
+//   * derive uCov FROM that field's own quantiles, so "density" keeps meaning coverage
+//     share rather than an absolute reach value that only suits one dataset.
+function percentileStretch(fa){
+  const s = Array.prototype.slice.call(fa).sort(function(a, b){ return a - b; });
+  const lo = s[Math.floor(s.length * 0.05)];
+  const hi = s[Math.min(s.length - 1, Math.floor(s.length * 0.95))];
+  const d = Math.max(1e-4, hi - lo);
+  const out = new Float32Array(fa.length);
+  for (let i = 0; i < fa.length; i++){
+    out[i] = Math.min(1, Math.max(0, (fa[i] - lo) / d));
+  }
+  return out;
+}
+function cloudArrays(){
+  if (!_cloudArr){
+    _cloudArr = {
+      big:   percentileStretch(dec(DATA.cloud.big)),
+      small: percentileStretch(dec(DATA.cloud.small))
+    };
+  }
+  return _cloudArr;
+}
 function cloudTextures(){
   if (_cloudTex) return _cloudTex;
+  const a = cloudArrays();
   const mk = function(fa){
     const u8 = new Uint8Array(NB*NB);
     for (let i=0;i<NB*NB;i++) u8[i] = Math.max(0, Math.min(255, Math.round(fa[i]*255)));
@@ -1188,7 +1217,7 @@ function cloudTextures(){
     t.needsUpdate = true;
     return t;
   };
-  _cloudTex = { big: mk(dec(DATA.cloud.big)), small: mk(dec(DATA.cloud.small)) };
+  _cloudTex = { big: mk(a.big), small: mk(a.small) };
   return _cloudTex;
 }
 function buildCloud(){
@@ -1199,6 +1228,18 @@ function buildCloud(){
   }
   if (!DATA || !DATA.cloud) return;
   const tx = cloudTextures();
+  // uCov from this field's OWN quantiles: density 0 reads as few cloud banks (high
+  // quantile), density 1 as most of the sky (low quantile). Absolute thresholds looked
+  // fine on the corpus they were tuned against and wrong on the next one.
+  const ca = cloudArrays(), cw = P.bigWeight;
+  const comp = new Float32Array(NB2);
+  for (let k=0;k<NB2;k++) comp[k] = cw*ca.big[k] + (1-cw)*ca.small[k];
+  const cpts = Array.prototype.slice.call(comp).sort(function(x, y){ return x - y; });
+  const cq = function(p){
+    const i = Math.min(cpts.length-1, Math.max(0, Math.round((cpts.length-1)*p)));
+    return cpts[i];
+  };
+  const uCov = Math.max(0.05, cq(0.88 - 0.48*P.density) * 0.92);
   cloudMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, depthTest: true, side: THREE.FrontSide,
     uniforms: {
@@ -1207,7 +1248,7 @@ function buildCloud(){
       uW:     { value: P.bigWeight },
       uOp:    { value: P.cloudOpacity },
       uScale: { value: 5.5 / Math.max(0.3, P.spriteScale) },
-      uCov:   { value: 0.46 - 0.24*P.density },
+      uCov:   { value: uCov },
       uFlow:  { value: P.cloudSpin * 0.020 },
       uTime:  { value: 0.0 }
     },

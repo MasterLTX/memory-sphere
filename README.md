@@ -49,6 +49,30 @@ See [`sphere/pipeline/build_sphere.py`](sphere/pipeline/build_sphere.py) for the
 Those real-data numbers come from the author's own 10,441-memory store, which is not part of
 this repository. What you can reproduce here is the next section's set, computed on the demo data.
 
+## The cloud is a second reading, not decoration
+
+A shell above the terrain carries a second field, and it is measured rather than drawn for looks.
+Cloud thickness is **link reach**: for each anchor, the mean great-circle distance from its memories
+to their own top-5 true neighbours. So a thick bank marks *isolation* — the memories gathered there
+keep their real neighbours on the far side of the sphere — and a thin patch marks a cluster whose
+neighbours sit right next to it.
+
+Two candidate definitions were measured against the memory count and the height field before either
+was drawn:
+
+| definition | vs memory count | vs height field | verdict |
+|---|---|---|---|
+| number of links | **+0.998** | +0.057 | rejected — that is just density again |
+| link distance (reach) | −0.395 (real) / −0.211 (demo) | **−0.440** (real) / −0.235 (demo) | kept |
+
+The second row is why the cloud is worth having: it is anti-correlated with the terrain, so the two
+layers are complementary readings of the same memories rather than one painted twice.
+
+Every render parameter is live: thirteen sliders (cloud height, coverage, big-vs-small weight, cloud
+scale, drift, opacity, terrain relief, snow line, waterline, water opacity, crest glow, star
+brightness, star density) write to localStorage **and** into the URL, so a look you like is a link
+you can share.
+
 ## What this globe can and cannot answer
 
 This section is discipline, not a disclaimer — it decides when you should open it.
@@ -119,7 +143,7 @@ cd memory-sphere
 python -m venv .venv && . .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-python -m sphere --version   # -> memory-sphere 1.1.0 (tag v1.1.0)
+python -m sphere --version   # -> memory-sphere 1.2.0 (tag v1.2.0)
 python -m sphere demo        # synthesises 3,000 fake memories, builds the globe
 open out/sphere_timeline.html
 ```

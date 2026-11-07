@@ -8,6 +8,52 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-06
+
+### Added
+
+- **A cloud layer that means something.** `sphere/pipeline/build_cloud.py` derives a
+  32×32 field from **link reach**: for each cell, the mean great-circle distance from
+  its memories to their own top-5 true neighbours. Thick cloud marks *isolation* — the
+  memories gathered there keep their real neighbours far away — not density, which
+  correlates with the memory count at +0.998 and is therefore already the terrain.
+  Against the height field it is a different reading rather than a restatement:
+  spearman −0.46 on the real corpus, −0.24 on the demo.
+- **13 live render parameters.** Cloud height, coverage, big-vs-small weight,
+  cloud scale, drift rate, opacity, terrain relief, snow line, waterline, water
+  opacity, crest glow, star brightness and star density. Every knob is a slider, it
+  persists to localStorage, and it is written into the URL, so a look can be shared
+  as a link.
+- `check_render.py` now gates the cloud: the material, both field textures, its own
+  index attribute, height-above-terrain semantics and the GLSL `atan(y, x)` spelling,
+  plus a data-level assertion that the cloud stays a *different* reading of the field
+  (|spearman| < 0.6).
+
+### Changed
+
+- **The cloud is a shaded shell, not a sprite field.** The first implementation floated
+  ~10k point sprites at a fixed radius 1.30. That produced two silhouettes — a cloud
+  ball with a small planet inside it — and it could not make cloud texture at any
+  setting of size, alpha or count: stacked sprites only ever read as even grey fog.
+  The shell now rides the terrain's own vertices at a fixed height above it, so there
+  is exactly one silhouette, and its look is a fragment shader: the 32×32 field says
+  *where*, domain-warped fbm says *how torn*, and a smoothstep gives each bank an edge.
+  Weather drifts by sliding the field lookup along longitude instead of spinning the
+  geometry.
+- **`cloudR` changed meaning** — it was the shell's radius, it is now its height above
+  the terrain (range 1.00–1.40 reads as 0.00–0.40 above the surface). Saved looks move
+  to a new storage key, so a stale 1.32 cannot float the weather overhead.
+- **Coverage is a property of the render, not of the corpus.** The field is stretched
+  to its own 5–95 percentile and the threshold comes from that field's quantiles, so
+  "density" keeps meaning "share of sky" on any dataset. A fixed threshold painted
+  ~40% of the sphere on the real corpus and ~85% on the demo.
+
+### Fixed
+
+- Two failures that do not throw, both of which silently drew nothing: `atan2` is not
+  GLSL ES 1.00 (the two-argument form is `atan(y, x)`), and handing one geometry's
+  index *attribute* to a second geometry makes the two fight over a VAO binding.
+
 ## [1.1.0] — 2026-11-05
 
 ### Added
